@@ -1,3 +1,5 @@
+// Francis Lopata 2026
+
 package tilecraft;
 
 import java.util.Objects;
