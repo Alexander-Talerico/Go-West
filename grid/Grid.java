@@ -1,12 +1,20 @@
 package grid;
+
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.net.URL;
+
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+
 import tilecraft.TerrainType;
 import tilecraft.Tile;
 import tilecraft.TileGenerator;
@@ -17,8 +25,13 @@ public class Grid extends JPanel {
     private static final int COLUMNS = 12;
     private static final int TILE_SIZE = 80;
 
-    // The tiles currently placed on the board
+    // Tiles currently placed on the board
     private Tile[][] board = new Tile[ROWS][COLUMNS];
+
+    private int hoveredRow = -1;
+    private int hoveredColumn = -1;
+
+    private Clip placeSound;
 
     public Grid() {
         int width = COLUMNS * TILE_SIZE;
@@ -26,37 +39,87 @@ public class Grid extends JPanel {
 
         setPreferredSize(new Dimension(width, height));
 
+        placeSound = loadSound(
+            "/sounds/place-tile-sound.wav"
+        );
+
         addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
                 int column = event.getX() / TILE_SIZE;
                 int row = event.getY() / TILE_SIZE;
 
-                // Makes sure the clicked square is inside the grid
                 if (row >= 0 && row < ROWS &&
                     column >= 0 && column < COLUMNS) {
 
-                    // Right click rotates tile
-                    if (event.getButton() == MouseEvent.BUTTON3) {
+                    // Shift and right click deletes a tile
+                    if (event.getButton() == MouseEvent.BUTTON3
+                            && event.isShiftDown()) {
+
                         if (board[row][column] != null) {
-                            board[row][column].rotateClockwise();
+                            board[row][column] = null;
+                            System.out.println("Tile deleted");
+                        }
+                    }
+
+                    // Right click rotates a tile
+                    else if (event.getButton()
+                            == MouseEvent.BUTTON3) {
+
+                        if (board[row][column] != null) {
+                            board[row][column]
+                                .rotateClockwise();
+
                             System.out.println(
-                                "Rotated " + board[row][column]
+                                "Rotated "
+                                + board[row][column]
                             );
                         }
                     }
 
-                    // Left click places a new tile
-                    else if (event.getButton() == MouseEvent.BUTTON1) {
+                    // Left click places a tile
+                    else if (event.getButton()
+                            == MouseEvent.BUTTON1) {
+
                         if (board[row][column] == null) {
                             board[row][column] =
                                 TileGenerator.generateTile();
 
+                            playSound(placeSound);
+
                             System.out.println(
-                                "Placed " + board[row][column]
+                                "Placed "
+                                + board[row][column]
                             );
                         }
                     }
+
+                    repaint();
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                hoveredRow = -1;
+                hoveredColumn = -1;
+                repaint();
+            }
+        });
+
+        addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent event) {
+                int newColumn =
+                    event.getX() / TILE_SIZE;
+
+                int newRow =
+                    event.getY() / TILE_SIZE;
+
+                if (newRow != hoveredRow ||
+                    newColumn != hoveredColumn) {
+
+                    hoveredRow = newRow;
+                    hoveredColumn = newColumn;
 
                     repaint();
                 }
@@ -69,13 +132,14 @@ public class Grid extends JPanel {
         super.paintComponent(graphics);
 
         for (int row = 0; row < ROWS; row++) {
-            for (int column = 0; column < COLUMNS; column++) {
+            for (int column = 0;
+                 column < COLUMNS;
+                 column++) {
 
                 int x = column * TILE_SIZE;
                 int y = row * TILE_SIZE;
 
                 if (board[row][column] == null) {
-                    // Draw a grid square
                     if ((row + column) % 2 == 0) {
                         graphics.setColor(
                             new Color(194, 178, 128)
@@ -102,12 +166,41 @@ public class Grid extends JPanel {
                 }
 
                 graphics.setColor(Color.BLACK);
+
                 graphics.drawRect(
                     x,
                     y,
                     TILE_SIZE,
                     TILE_SIZE
                 );
+
+                if (row == hoveredRow &&
+                    column == hoveredColumn &&
+                    board[row][column] != null) {
+
+                    graphics.setColor(Color.YELLOW);
+
+                    graphics.drawRect(
+                        x + 1,
+                        y + 1,
+                        TILE_SIZE - 2,
+                        TILE_SIZE - 2
+                    );
+
+                    graphics.drawRect(
+                        x + 2,
+                        y + 2,
+                        TILE_SIZE - 4,
+                        TILE_SIZE - 4
+                    );
+
+                    graphics.drawRect(
+                        x + 3,
+                        y + 3,
+                        TILE_SIZE - 6,
+                        TILE_SIZE - 6
+                    );
+                }
             }
         }
     }
@@ -118,30 +211,47 @@ public class Grid extends JPanel {
             int x,
             int y) {
 
-        // Every tile contains a smaller 3 by 3 grid
-        for (int tileRow = 0; tileRow < 3; tileRow++) {
+        // Each tile contains a smaller 3 by 3 grid
+        for (int tileRow = 0;
+             tileRow < 3;
+             tileRow++) {
+
             for (int tileColumn = 0;
                  tileColumn < 3;
                  tileColumn++) {
 
-                int smallSize = TILE_SIZE / 3;
-
                 int smallX =
-                    x + tileColumn * smallSize;
+                    x + tileColumn * TILE_SIZE / 3;
 
                 int smallY =
-                    y + tileRow * smallSize;
+                    y + tileRow * TILE_SIZE / 3;
+
+                int nextX =
+                    x + (tileColumn + 1)
+                    * TILE_SIZE / 3;
+
+                int nextY =
+                    y + (tileRow + 1)
+                    * TILE_SIZE / 3;
+
+                int smallWidth = nextX - smallX;
+                int smallHeight = nextY - smallY;
 
                 TerrainType terrain =
-                    tile.getCell(tileRow, tileColumn);
+                    tile.getCell(
+                        tileRow,
+                        tileColumn
+                    );
 
-                graphics.setColor(getTerrainColor(terrain));
+                graphics.setColor(
+                    getTerrainColor(terrain)
+                );
 
                 graphics.fillRect(
                     smallX,
                     smallY,
-                    smallSize,
-                    smallSize
+                    smallWidth,
+                    smallHeight
                 );
 
                 graphics.setColor(Color.DARK_GRAY);
@@ -149,14 +259,16 @@ public class Grid extends JPanel {
                 graphics.drawRect(
                     smallX,
                     smallY,
-                    smallSize,
-                    smallSize
+                    smallWidth - 1,
+                    smallHeight - 1
                 );
             }
         }
     }
 
-    private Color getTerrainColor(TerrainType terrain) {
+    private Color getTerrainColor(
+            TerrainType terrain) {
+
         if (terrain == TerrainType.FIELD) {
             return new Color(150, 190, 105);
         }
@@ -185,13 +297,57 @@ public class Grid extends JPanel {
             return new Color(65, 145, 210);
         }
 
-        // Used for unknown terrains
         return Color.MAGENTA;
+    }
+
+    private Clip loadSound(String fileName) {
+        try {
+            URL soundLocation =
+                getClass().getResource(fileName);
+
+            if (soundLocation == null) {
+                System.out.println(
+                    "Sound file not found: "
+                    + fileName
+                );
+
+                return null;
+            }
+
+            AudioInputStream audio =
+                AudioSystem.getAudioInputStream(
+                    soundLocation
+                );
+
+            Clip clip = AudioSystem.getClip();
+            clip.open(audio);
+            audio.close();
+
+            return clip;
+        } catch (Exception error) {
+            System.out.println(
+                "Could not load sound: "
+                + fileName
+            );
+
+            error.printStackTrace();
+            return null;
+        }
+    }
+
+    private void playSound(Clip sound) {
+        if (sound != null) {
+            sound.stop();
+            sound.flush();
+            sound.setFramePosition(0);
+            sound.start();
+        }
     }
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            JFrame window = new JFrame("Go West Grid");
+            JFrame window =
+                new JFrame("Go West Grid");
 
             window.setDefaultCloseOperation(
                 JFrame.EXIT_ON_CLOSE
