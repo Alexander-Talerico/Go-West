@@ -1,0 +1,123 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>my scoreboard app!!</title>
+</head>
+<body style="background-color: #f0f0f0; font-family: sans-serif;">
+
+    <div style="width: 400px; margin: auto; background: white; padding: 20px; margin-top: 50px;">
+        <h1>GO WEST SCOREBOARD</h1>
+        <p>chart the points here</p>
+
+        <button id="minBtn" type="button">Minimize</button>
+
+        <div id="stuff">
+            <hr>
+
+            <h3>Add player</h3>
+            <form id="form1">
+                <input type="text" id="nameBox" placeholder="player name..." required>
+                <button type="submit" id="addBtn">Add</button>
+            </form>
+
+            <br>
+            <h3>Players list:</h3>
+            <div id="list">
+                <!-- players go here -->
+            </div>
+        </div>
+    </div>
+
+<script>
+    // my javascript code
+
+    // load players that were saved before
+    var players = JSON.parse(localStorage.getItem("myPlayers")) || [];
+
+    var myForm = document.getElementById("form1");
+    var inputBox = document.getElementById("nameBox");
+    var leaderboardDiv = document.getElementById("list");
+
+    myForm.addEventListener("submit", function(e) {
+        e.preventDefault(); // stop page from refreshing
+
+        var playerName = inputBox.value.trim();
+
+        if (playerName == "") {
+            alert("type a name first!");
+            return;
+        }
+
+        var newguy = {
+            name: playerName,
+            score: 0
+        };
+
+        players.push(newguy);
+
+        inputBox.value = "";
+
+        savePlayers();
+    });
+
+    function savePlayers() {
+        // save the list so it stays after refreshing
+        localStorage.setItem("myPlayers", JSON.stringify(players));
+        showThePlayers();
+    }
+
+    function showThePlayers() {
+        leaderboardDiv.innerHTML = "";
+
+        for (var i = 0; i < players.length; i++) {
+            var p = document.createElement("p");
+            p.innerText = players[i].name + " has " + players[i].score + " points ";
+
+            // keep track of which player this button belongs to
+            let index = i;
+
+            // adding a plus button
+            var b1 = document.createElement("button");
+            b1.innerText = "+";
+
+            b1.onclick = function() {
+                players[index].score = players[index].score + 1;
+                savePlayers();
+            };
+
+            // adding a minus button
+            var b2 = document.createElement("button");
+            b2.innerText = "-";
+
+            b2.onclick = function() {
+                players[index].score = players[index].score - 1;
+                savePlayers();
+            };
+
+            p.appendChild(b1);
+            p.appendChild(b2);
+            leaderboardDiv.appendChild(p);
+        }
+    }
+
+    // minimize and expand the scoreboard
+    var minBtn = document.getElementById("minBtn");
+    var stuff = document.getElementById("stuff");
+
+    minBtn.onclick = function() {
+        if (stuff.hidden == false) {
+            stuff.hidden = true;
+            minBtn.innerText = "Expand";
+        } else {
+            stuff.hidden = false;
+            minBtn.innerText = "Minimize";
+        }
+    };
+
+    // show saved players when the page first opens
+    showThePlayers();
+</script>
+
+</body>
+</html>
