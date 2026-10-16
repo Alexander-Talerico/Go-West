@@ -1,104 +1,137 @@
+
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 
 public class Server {
-    static Map<String, Socket> rooms = new HashMap<>();
+
+    private static final int PORT = 5000;
+    private static final Map<String, Room> rooms = new HashMap<>();
+
+    private static class Room {
+        Socket host;
+        PrintWriter hostOut;
+        CountDownLatch started = new CountDownLatch(1);
+        boolean full = false;
+
+        Room(Socket host, PrintWriter hostOut) {
+            this.host = host;
+            this.hostOut = hostOut;
+        }
+    }
+
     public static void main(String[] args) {
-        int port = 5000;
-
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-
-            System.out.println("Server started on port " + port);
+        try (ServerSocket server = new ServerSocket(PORT)) {
+            System.out.println("Server running on port " + PORT);
             System.out.println("Waiting for players...");
 
             while (true) {
-                Socket clientSocket = serverSocket.accept();
+                Socket socket = server.accept();
+                System.out.println("Player connected!");
 
-                System.out.println("A player connected!");
-
-                new Thread(() -> handleClient(clientSocket)).start();
+                new Thread(() -> handleClient(socket)).start();
             }
 
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-static void handleClient(Socket socket) {
+
+    private static void handleClient(Socket socket) {
         try {
             BufferedReader in = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream())
-            );
+                new InputStreamReader(socket.getInputStream()));
 
             PrintWriter out = new PrintWriter(
-                    socket.getOutputStream(), true
-            );
+                socket.getOutputStream(), true);
 
-            
-            out.println("Do you want to CREATE or JOIN a room?");
+            out.println("READY");
 
             String action = in.readLine();
 
-            if (action.equalsIgnoreCase("CREATE")) {
+            if (action == null) {
+                return;
+            }
 
-                
-                String roomCode = generateRoomCode();
+            if (action.equals("CREATE")) {
+                String code = generateRoomCode();
+                Room room = new Room(socket, out);
 
-                rooms.put(roomCode, socket);
-
-                out.println("ROOM:" + roomCode);
-                out.println("Waiting for someone to join...");
-
-                System.out.println("Created room: " + roomCode);
-
-                
-                while (true) {
-                    Thread.sleep(1000);
+                synchronized (rooms) {
+                    rooms.put(code, room);
                 }
 
-            } else if (action.equalsIgnoreCase("JOIN")) {
+                out.println("ROOM:" + code);
 
-                out.println("Enter room code:");
+                System.out.println("Room created: " + code);
 
-                String roomCode = in.readLine();
+                // Wait until another player joins.
+                room.started.await();
 
-                if (rooms.containsKey(roomCode)) {
+                out.println("START");
 
-                    Socket hostSocket = rooms.get(roomCode);
+            } else if (action.equals("JOIN")) {
+                out.println("CODE");
 
-                    
-                    out.println("You have joined the room!");
+                String code = in.readLine();
 
-                    
-                    PrintWriter hostOut = new PrintWriter(
-                            hostSocket.getOutputStream(), true
-                    );
-
-                    hostOut.println("Someone has joined your room!");
-
-                    System.out.println("Player joined room: " + roomCode);
-
-                } else {
-                    out.println("Room does not exist.");
+                if (code == null) {
+                    return;
                 }
+
+                Room room;
+
+                synchronized (rooms) {
+                    room = rooms.get(code.trim().toUpperCase());
+
+                    if (room != null && !room.full) {
+                        room.full = true;
+                    } else {
+                        room = null;
+                    }
+                }
+
+                if (room == null) {
+                    out.println("ERROR:Room not found or full.");
+                    return;
+                }
+
+                // Tell both players to start.
+                out.println("START");
+                room.hostOut.println("START");
+                room.started.countDown();
+
+                System.out.println("Player joined room: " + code);
             }
 
         } catch (Exception e) {
             System.out.println("Player disconnected.");
+        } finally {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
         }
     }
-static String generateRoomCode() {
+
+    private static String generateRoomCode() {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         StringBuilder code = new StringBuilder();
-
         Random random = new Random();
 
-        for (int i = 0; i < 6; i++) {
-            code.append(chars.charAt(random.nextInt(chars.length())));
+        synchronized (rooms) {
+            do {
+                code.setLength(0);
+
+                for (int i = 0; i < 6; i++) {
+                    code.append(chars.charAt(
+                        random.nextInt(chars.length())));
+                }
+
+            } while (rooms.containsKey(code.toString()));
         }
 
         return code.toString();
     }
-
-
 }
