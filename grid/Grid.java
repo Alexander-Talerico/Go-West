@@ -21,9 +21,9 @@ import tilecraft.TileGenerator;
 
 public class Grid extends JPanel {
 
-    private static final int ROWS = 5;
-    private static final int COLUMNS = 12;
-    private static final int TILE_SIZE = 80;
+    private static final int ROWS = 10;
+    private static final int COLUMNS = 30;
+    private static final int TILE_SIZE = 40;
 
     // Tiles currently placed on the board
     private Tile[][] board = new Tile[ROWS][COLUMNS];
@@ -91,6 +91,8 @@ public class Grid extends JPanel {
                                 "Placed "
                                 + board[row][column]
                             );
+
+                            TileGenerator.onTilePlaced();
                         }
                     }
 
@@ -205,65 +207,8 @@ public class Grid extends JPanel {
         }
     }
 
-    private void drawTile(
-            Graphics graphics,
-            Tile tile,
-            int x,
-            int y) {
-
-        // Each tile contains a smaller 3 by 3 grid
-        for (int tileRow = 0;
-             tileRow < 3;
-             tileRow++) {
-
-            for (int tileColumn = 0;
-                 tileColumn < 3;
-                 tileColumn++) {
-
-                int smallX =
-                    x + tileColumn * TILE_SIZE / 3;
-
-                int smallY =
-                    y + tileRow * TILE_SIZE / 3;
-
-                int nextX =
-                    x + (tileColumn + 1)
-                    * TILE_SIZE / 3;
-
-                int nextY =
-                    y + (tileRow + 1)
-                    * TILE_SIZE / 3;
-
-                int smallWidth = nextX - smallX;
-                int smallHeight = nextY - smallY;
-
-                TerrainType terrain =
-                    tile.getCell(
-                        tileRow,
-                        tileColumn
-                    );
-
-                graphics.setColor(
-                    getTerrainColor(terrain)
-                );
-
-                graphics.fillRect(
-                    smallX,
-                    smallY,
-                    smallWidth,
-                    smallHeight
-                );
-
-                graphics.setColor(Color.DARK_GRAY);
-
-                graphics.drawRect(
-                    smallX,
-                    smallY,
-                    smallWidth - 1,
-                    smallHeight - 1
-                );
-            }
-        }
+    private void drawTile(Graphics graphics, Tile tile, int x, int y) {
+        tilecraft.Tilecraft.drawTile(graphics, tile, x, y, TILE_SIZE, false);
     }
 
     private Color getTerrainColor(
@@ -283,14 +228,6 @@ public class Grid extends JPanel {
 
         if (terrain == TerrainType.GATE) {
             return new Color(215, 160, 55);
-        }
-
-        if (terrain == TerrainType.RAILROAD) {
-            return new Color(70, 70, 70);
-        }
-
-        if (terrain == TerrainType.MOUNTAIN) {
-            return new Color(125, 125, 115);
         }
 
         if (terrain == TerrainType.RIVER) {

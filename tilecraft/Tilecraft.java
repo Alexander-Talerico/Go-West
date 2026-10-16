@@ -1,5 +1,6 @@
 package tilecraft;
 
+import grid.Grid;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.Path2D;
@@ -11,7 +12,8 @@ public class Tilecraft extends JFrame {
     public static final int DEFAULT_PLAYER_COUNT = 4;
 
     private final GameState gameState;
-    private final TileCanvas canvas = new TileCanvas();
+    private final Grid boardGrid;
+    private final TileCanvas previewCanvas = new TileCanvas();
     private final JLabel headerLabel = new JLabel("", SwingConstants.CENTER);
 
     public Tilecraft() {
@@ -20,39 +22,40 @@ public class Tilecraft extends JFrame {
 
     public Tilecraft(int playerCount) {
         this.gameState = new GameState(playerCount);
+        this.boardGrid = new Grid();
 
-        setTitle("Tilecraft - Turn-Based Inspector");
+        setTitle("Go West");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(650, 700);
-        setLocationRelativeTo(null);
         setLayout(new BorderLayout());
 
-        // Header Panel showing turn and current player
         JPanel topPanel = new JPanel(new BorderLayout());
         topPanel.setBackground(new Color(230, 230, 230));
         topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 8, 10));
 
-        headerLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
+        headerLabel.setFont(new Font("SansSerif", Font.BOLD, 16));
         topPanel.add(headerLabel, BorderLayout.CENTER);
         add(topPanel, BorderLayout.NORTH);
 
-        add(canvas, BorderLayout.CENTER);
+        JPanel gridWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+        gridWrapper.setBackground(new Color(210, 210, 210));
+        gridWrapper.add(boardGrid);
+        add(gridWrapper, BorderLayout.CENTER);
 
-        // Control buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 6));
-        buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 8));
+        bottomPanel.setBackground(new Color(240, 240, 240));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 10, 10, 10));
 
         JButton btnRotateCCW = new JButton("Rotate CCW");
-        JButton btnEndTurn = new JButton("End Turn");
         JButton btnRotateCW = new JButton("Rotate CW");
+        JButton btnEndTurn = new JButton("Skip / End Turn");
 
-        btnEndTurn.setFont(new Font("SansSerif", Font.BOLD, 13));
-        btnEndTurn.setBackground(new Color(220, 240, 220));
+        previewCanvas.setPreferredSize(new Dimension(220, 220));
 
-        buttonPanel.add(btnRotateCCW);
-        buttonPanel.add(btnEndTurn);
-        buttonPanel.add(btnRotateCW);
-        add(buttonPanel, BorderLayout.SOUTH);
+        bottomPanel.add(btnRotateCCW);
+        bottomPanel.add(previewCanvas);
+        bottomPanel.add(btnRotateCW);
+        bottomPanel.add(btnEndTurn);
+        add(bottomPanel, BorderLayout.SOUTH);
 
         btnRotateCCW.addActionListener(e -> {
             Tile tile = gameState.getCurrentTile();
@@ -75,29 +78,383 @@ public class Tilecraft extends JFrame {
             updateUIState();
         });
 
+        TileGenerator.setPlacementListener(() -> {
+            gameState.endTurn();
+            updateUIState();
+        });
+
         updateUIState();
+        pack();
+        setLocationRelativeTo(null);
+        setResizable(false);
     }
 
     private void updateUIState() {
         Player current = gameState.getCurrentPlayer();
-        headerLabel.setText(String.format("Turn %d: %s's Turn", gameState.getTurnCount(), current.getName()));
+        headerLabel.setText(String.format("Turn %d: %s's Turn",
+                gameState.getTurnCount(), current.getName()));
         headerLabel.setForeground(current.getBannerColor());
 
-        canvas.setTile(gameState.getCurrentTile());
-        canvas.repaint();
+        previewCanvas.setTile(gameState.getCurrentTile());
+        previewCanvas.repaint();
+        boardGrid.repaint();
+    }
+
+    private static final Color COLOR_FIELD = new Color(225, 245, 225);
+    private static final Color COLOR_CITY = new Color(250, 210, 210);
+    private static final Color LINE_RIVER = new Color(30, 144, 255);
+    private static final Color LINE_ROAD = new Color(80, 80, 80);
+    private static final Color LINE_WALL = new Color(160, 30, 30);
+    private static final Color LINE_GATE = new Color(180, 120, 20);
+    private static final Color LINE_GRID = new Color(110, 110, 110);
+
+    public static void drawTile(Graphics g, Tile tile, int sx, int sy, int size, boolean showLabels) {
+        if (tile == null) return;
+
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        int cell = size / 3;
+        float scale = size / 200.0f;
+
+        drawCellBackgrounds(g2, tile, sx, sy, cell);
+        drawPaths(g2, tile, sx, sy, cell, scale);
+        drawWalls(g2, tile, sx, sy, cell, scale);
+        drawGate(g2, tile, sx, sy, cell, scale);
+        drawGrid(g2, sx, sy, cell, scale);
+
+        if (showLabels) {
+            //drawLabels(g2, tile, sx, sy, cell);
+        }
+
+        g2.dispose();
+    }
+
+    private static void drawCellBackgrounds(Graphics2D g2, Tile currentTile, int sx, int sy, int cell) {
+        g2.setColor(COLOR_FIELD);
+        g2.fillRect(sx, sy, cell * 3, cell * 3);
+
+        if (isCityTerrain(currentTile.getCenter())) {
+            g2.setColor(COLOR_CITY);
+            g2.fillRect(sx + cell, sy + cell, cell, cell);
+        }
+
+        g2.setColor(COLOR_CITY);
+        for (Edge e : Edge.values()) {
+            if (isCityTerrain(currentTile.getEffectiveEdge(e))) {
+                g2.fillRect(sx + e.getCol() * cell, sy + e.getRow() * cell, cell, cell);
+            }
+        }
+
+        fillCorner(g2, currentTile, Corner.NW, sx, sy, cell);
+        fillCorner(g2, currentTile, Corner.NE, sx, sy, cell);
+        fillCorner(g2, currentTile, Corner.SE, sx, sy, cell);
+        fillCorner(g2, currentTile, Corner.SW, sx, sy, cell);
+    }
+
+    private static void fillCorner(Graphics2D g2, Tile currentTile, Corner corner, int sx, int sy, int cell) {
+        if (!isCityTerrain(currentTile.getEffectiveCorner(corner))) return;
+
+        int cx = sx + corner.getCol() * cell;
+        int cy = sy + corner.getRow() * cell;
+
+        boolean nCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.NORTH));
+        boolean eCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.EAST));
+        boolean sCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.SOUTH));
+        boolean wCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.WEST));
+
+        g2.setColor(COLOR_CITY);
+
+        switch (corner) {
+            case NW -> {
+                if (nCity && wCity) {
+                    g2.fillRect(cx, cy, cell, cell);
+                } else if (nCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx + cell, cy);
+                    p.addPoint(cx + cell, cy + cell);
+                    g2.fillPolygon(p);
+                } else if (wCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx, cy + cell);
+                    p.addPoint(cx + cell, cy + cell);
+                    g2.fillPolygon(p);
+                }
+            }
+            case NE -> {
+                if (nCity && eCity) {
+                    g2.fillRect(cx, cy, cell, cell);
+                } else if (nCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx + cell, cy);
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx, cy + cell);
+                    g2.fillPolygon(p);
+                } else if (eCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx + cell, cy);
+                    p.addPoint(cx + cell, cy + cell);
+                    p.addPoint(cx, cy + cell);
+                    g2.fillPolygon(p);
+                }
+            }
+            case SE -> {
+                if (sCity && eCity) {
+                    g2.fillRect(cx, cy, cell, cell);
+                } else if (sCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx + cell, cy + cell);
+                    p.addPoint(cx, cy + cell);
+                    p.addPoint(cx, cy);
+                    g2.fillPolygon(p);
+                } else if (eCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx + cell, cy + cell);
+                    p.addPoint(cx + cell, cy);
+                    p.addPoint(cx, cy);
+                    g2.fillPolygon(p);
+                }
+            }
+            case SW -> {
+                if (sCity && wCity) {
+                    g2.fillRect(cx, cy, cell, cell);
+                } else if (sCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx, cy + cell);
+                    p.addPoint(cx + cell, cy + cell);
+                    p.addPoint(cx + cell, cy);
+                    g2.fillPolygon(p);
+                } else if (wCity) {
+                    Polygon p = new Polygon();
+                    p.addPoint(cx, cy + cell);
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx + cell, cy);
+                    g2.fillPolygon(p);
+                }
+            }
+        }
+    }
+
+    private static void drawPaths(Graphics2D g2, Tile currentTile, int sx, int sy, int cell, float scale) {
+        TerrainType center = currentTile.getCenter();
+        Point centerPt = new Point(sx + (int) (1.5 * cell), sy + (int) (1.5 * cell));
+
+        drawPathNetwork(g2, currentTile, sx, sy, cell, TerrainType.RIVER, LINE_RIVER, Math.max(2.5f, 8.0f * scale), centerPt);
+
+        if (center == TerrainType.GATE) {
+            g2.setColor(LINE_ROAD);
+            g2.setStroke(new BasicStroke(Math.max(2.0f, 6.0f * scale), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+            for (Edge e : Edge.values()) {
+                if (currentTile.getEffectiveEdge(e) == TerrainType.ROAD) {
+                    Point outer = getEdgeOuterPoint(e, sx, sy, cell);
+                    Point gateEdgePoint = getCenterEntry(e, sx, sy, cell);
+                    g2.drawLine(outer.x, outer.y, gateEdgePoint.x, gateEdgePoint.y);
+                }
+            }
+        } else {
+            drawPathNetwork(g2, currentTile, sx, sy, cell, TerrainType.ROAD, LINE_ROAD, Math.max(2.0f, 6.0f * scale), centerPt);
+        }
+    }
+
+    private static void drawPathNetwork(Graphics2D g2, Tile currentTile, int sx, int sy, int cell, TerrainType pathType, Color color, float strokeWidth, Point centerPt) {
+        List<Edge> activeEdges = new ArrayList<>();
+        for (Edge e : Edge.values()) {
+            if (currentTile.getEffectiveEdge(e) == pathType) {
+                activeEdges.add(e);
+            }
+        }
+
+        if (activeEdges.isEmpty()) return;
+
+        g2.setColor(color);
+        g2.setStroke(new BasicStroke(strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+        if (activeEdges.size() == 2 && Math.abs(activeEdges.get(0).getIndex() - activeEdges.get(1).getIndex()) == 2) {
+            Point p1 = getEdgeOuterPoint(activeEdges.get(0), sx, sy, cell);
+            Point p2 = getEdgeOuterPoint(activeEdges.get(1), sx, sy, cell);
+            g2.drawLine(p1.x, p1.y, p2.x, p2.y);
+            return;
+        }
+
+        for (Edge e : activeEdges) {
+            Point ep = getEdgeOuterPoint(e, sx, sy, cell);
+            Point cp = getCenterEntry(e, sx, sy, cell);
+
+            Path2D path = new Path2D.Float();
+            path.moveTo(ep.x, ep.y);
+            path.lineTo(cp.x, cp.y);
+            path.lineTo(centerPt.x, centerPt.y);
+            g2.draw(path);
+        }
+    }
+
+    private static void drawWalls(Graphics2D g2, Tile currentTile, int sx, int sy, int cell, float scale) {
+        boolean allCity = true;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                if (!isCityTerrain(currentTile.getCell(r, c))) {
+                    allCity = false;
+                    break;
+                }
+            }
+        }
+        if (allCity) return;
+
+        g2.setColor(LINE_WALL);
+        g2.setStroke(new BasicStroke(Math.max(1.8f, 4.5f * scale), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+        if (isDiagonalCorner(currentTile, Corner.NW)) g2.drawLine(sx, sy, sx + cell, sy + cell);
+        if (isDiagonalCorner(currentTile, Corner.NE)) g2.drawLine(sx + 3 * cell, sy, sx + 2 * cell, sy + cell);
+        if (isDiagonalCorner(currentTile, Corner.SE)) g2.drawLine(sx + 3 * cell, sy + 3 * cell, sx + 2 * cell, sy + 2 * cell);
+        if (isDiagonalCorner(currentTile, Corner.SW)) g2.drawLine(sx, sy + 3 * cell, sx + cell, sy + 2 * cell);
+
+        for (int r = 0; r < 2; r++) {
+            for (int c = 0; c < 3; c++) {
+                boolean top = isCityTerrain(currentTile.getCell(r, c));
+                boolean bottom = isCityTerrain(currentTile.getCell(r + 1, c));
+
+                if (top ^ bottom) {
+                    if (r == 0 && c == 0 && isDiagonalCorner(currentTile, Corner.NW)) continue;
+                    if (r == 0 && c == 2 && isDiagonalCorner(currentTile, Corner.NE)) continue;
+                    if (r == 1 && c == 0 && isDiagonalCorner(currentTile, Corner.SW)) continue;
+                    if (r == 1 && c == 2 && isDiagonalCorner(currentTile, Corner.SE)) continue;
+
+                    int y = sy + (r + 1) * cell;
+                    int x1 = sx + c * cell;
+                    int x2 = x1 + cell;
+                    g2.drawLine(x1, y, x2, y);
+                }
+            }
+        }
+
+        for (int c = 0; c < 2; c++) {
+            for (int r = 0; r < 3; r++) {
+                boolean left = isCityTerrain(currentTile.getCell(r, c));
+                boolean right = isCityTerrain(currentTile.getCell(r, c + 1));
+
+                if (left ^ right) {
+                    if (c == 0 && r == 0 && isDiagonalCorner(currentTile, Corner.NW)) continue;
+                    if (c == 1 && r == 0 && isDiagonalCorner(currentTile, Corner.NE)) continue;
+                    if (c == 0 && r == 2 && isDiagonalCorner(currentTile, Corner.SW)) continue;
+                    if (c == 1 && r == 2 && isDiagonalCorner(currentTile, Corner.SE)) continue;
+
+                    int x = sx + (c + 1) * cell;
+                    int y1 = sy + r * cell;
+                    int y2 = y1 + cell;
+                    g2.drawLine(x, y1, x, y2);
+                }
+            }
+        }
+    }
+
+    private static boolean isDiagonalCorner(Tile currentTile, Corner corner) {
+        if (!isCityTerrain(currentTile.getEffectiveCorner(corner))) return false;
+
+        boolean nCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.NORTH));
+        boolean eCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.EAST));
+        boolean sCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.SOUTH));
+        boolean wCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.WEST));
+
+        return switch (corner) {
+            case NW -> nCity ^ wCity;
+            case NE -> nCity ^ eCity;
+            case SE -> sCity ^ eCity;
+            case SW -> sCity ^ wCity;
+        };
+    }
+
+    private static boolean isCityTerrain(TerrainType type) {
+        return type == TerrainType.SETTLEMENT || type == TerrainType.GATE;
+    }
+
+    private static void drawGate(Graphics2D g2, Tile currentTile, int sx, int sy, int cell, float scale) {
+        if (currentTile.getCenter() != TerrainType.GATE) return;
+
+        Edge roadEdge = null;
+        for (Edge e : Edge.values()) {
+            if (currentTile.getEffectiveEdge(e) == TerrainType.ROAD) {
+                roadEdge = e;
+                break;
+            }
+        }
+        if (roadEdge == null) return;
+
+        Point gatePt = getCenterEntry(roadEdge, sx, sy, cell);
+        int rOuter = Math.max(4, (int) (10 * scale));
+        int rInner = Math.max(2, (int) (6 * scale));
+
+        g2.setColor(LINE_GATE);
+        g2.setStroke(new BasicStroke(Math.max(1.5f, 5.0f * scale), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.drawOval(gatePt.x - rOuter, gatePt.y - rOuter, rOuter * 2, rOuter * 2);
+
+        g2.setColor(new Color(60, 40, 20));
+        g2.fillOval(gatePt.x - rInner, gatePt.y - rInner, rInner * 2, rInner * 2);
+    }
+
+    private static void drawGrid(Graphics2D g2, int sx, int sy, int cell, float scale) {
+        g2.setColor(LINE_GRID);
+        g2.setStroke(new BasicStroke(Math.max(0.6f, 2.0f * scale)));
+
+        g2.drawRect(sx, sy, 3 * cell, 3 * cell);
+    }
+
+    /*private static void drawLabels(Graphics2D g2, Tile currentTile, int sx, int sy, int cell) {
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
+
+        // Row 0
+        drawCenteredText(g2, "NW", currentTile.getEffectiveCorner(Corner.NW).name(), sx + cell / 2, sy + cell / 2);
+        drawCenteredText(g2, "NORTH", currentTile.getEffectiveEdge(Edge.NORTH).name(), sx + cell + cell / 2, sy + cell / 2);
+        drawCenteredText(g2, "NE", currentTile.getEffectiveCorner(Corner.NE).name(), sx + 2 * cell + cell / 2, sy + cell / 2);
+
+        // Row 1
+        drawCenteredText(g2, "WEST", currentTile.getEffectiveEdge(Edge.WEST).name(), sx + cell / 2, sy + cell + cell / 2);
+        drawCenteredText(g2, currentTile.getId(), currentTile.getCenter().name(), sx + cell + cell / 2, sy + cell + cell / 2);
+        drawCenteredText(g2, "EAST", currentTile.getEffectiveEdge(Edge.EAST).name(), sx + 2 * cell + cell / 2, sy + cell + cell / 2);
+
+        // Row 2
+        drawCenteredText(g2, "SW", currentTile.getEffectiveCorner(Corner.SW).name(), sx + cell / 2, sy + 2 * cell + cell / 2);
+        drawCenteredText(g2, "SOUTH", currentTile.getEffectiveEdge(Edge.SOUTH).name(), sx + cell + cell / 2, sy + 2 * cell + cell / 2);
+        drawCenteredText(g2, "SE", currentTile.getEffectiveCorner(Corner.SE).name(), sx + 2 * cell + cell / 2, sy + 2 * cell + cell / 2);
+    }*/
+
+    private static void drawCenteredText(Graphics2D g2, String title, String subtitle, int cx, int cy) {
+        FontMetrics fm = g2.getFontMetrics();
+        int h = fm.getHeight();
+        int tw1 = fm.stringWidth(title);
+        int tw2 = fm.stringWidth(subtitle);
+
+        int maxW = Math.max(tw1, tw2) + 6;
+        g2.setColor(new Color(255, 255, 255, 185));
+        g2.fillRect(cx - maxW / 2, cy - h, maxW, h * 2 + 2);
+
+        g2.setColor(Color.BLACK);
+        g2.drawString(title, cx - tw1 / 2, cy - 2);
+        g2.drawString(subtitle, cx - tw2 / 2, cy + h - 2);
+    }
+
+    private static Point getEdgeOuterPoint(Edge edge, int sx, int sy, int cell) {
+        return switch (edge) {
+            case NORTH -> new Point(sx + cell + cell / 2, sy);
+            case EAST  -> new Point(sx + 3 * cell, sy + cell + cell / 2);
+            case SOUTH -> new Point(sx + cell + cell / 2, sy + 3 * cell);
+            case WEST  -> new Point(sx, sy + cell + cell / 2);
+        };
+    }
+
+    private static Point getCenterEntry(Edge edge, int sx, int sy, int cell) {
+        return switch (edge) {
+            case NORTH -> new Point(sx + cell + cell / 2, sy + cell);
+            case EAST  -> new Point(sx + 2 * cell, sy + cell + cell / 2);
+            case SOUTH -> new Point(sx + cell + cell / 2, sy + 2 * cell);
+            case WEST  -> new Point(sx + cell, sy + cell + cell / 2);
+        };
     }
 
     private static class TileCanvas extends JPanel {
-
-        private static final Color COLOR_FIELD = new Color(225, 245, 225);
-        private static final Color COLOR_CITY = new Color(250, 210, 210);
-
-        private static final Color LINE_RIVER = new Color(30, 144, 255);
-        private static final Color LINE_ROAD = new Color(80, 80, 80);
-        private static final Color LINE_WALL = new Color(160, 30, 30);
-        private static final Color LINE_GATE = new Color(180, 120, 20);
-        private static final Color LINE_GRID = new Color(110, 110, 110);
-
         private Tile currentTile;
 
         public TileCanvas() {
@@ -113,377 +470,19 @@ public class Tilecraft extends JFrame {
             super.paintComponent(g);
             if (currentTile == null) return;
 
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
             int panelW = getWidth();
             int panelH = getHeight();
-            int size = Math.min(panelW, panelH) - 40;
+            int size = Math.min(panelW, panelH) - 30;
             int startX = (panelW - size) / 2;
-            int startY = Math.max(22, (panelH - size) / 2 - 2);
-            int cell = size / 3;
+            int startY = 22;
 
-            // 1. Draw Cell Background Colors
-            drawCellBackgrounds(g2, startX, startY, cell);
+            drawTile(g, currentTile, startX, startY, size, true);
 
-            // 2. Draw Paths
-            drawPaths(g2, startX, startY, cell);
-
-            // 3. Draw City Walls
-            drawWalls(g2, startX, startY, cell);
-
-            // 4. Draw Gate structure if present
-            drawGate(g2, startX, startY, cell);
-
-            // 5. 3x3 Grid Outlines
-            drawGrid(g2, startX, startY, cell);
-
-            // 6. Labels on top
-            drawLabels(g2, startX, startY, cell);
-
-            // 7. Tile Subtitle
-            g2.setColor(Color.DARK_GRAY);
-            g2.setFont(new Font("SansSerif", Font.BOLD, 13));
-            String title = currentTile.getId() + " [" + currentTile.getArchetype().name() + "] (Facing: " + currentTile.getFacing() + ")";
-            int tw = g2.getFontMetrics().stringWidth(title);
-            g2.drawString(title, (panelW - tw) / 2, startY - 8);
-
-            g2.dispose();
-        }
-
-        private void drawCellBackgrounds(Graphics2D g2, int sx, int sy, int cell) {
-            g2.setColor(COLOR_FIELD);
-            g2.fillRect(sx, sy, cell * 3, cell * 3);
-
-            // Center
-            if (isCityTerrain(currentTile.getCenter())) {
-                g2.setColor(COLOR_CITY);
-                g2.fillRect(sx + cell, sy + cell, cell, cell);
-            }
-
-            // Edges
-            g2.setColor(COLOR_CITY);
-            for (Edge e : Edge.values()) {
-                if (isCityTerrain(currentTile.getEffectiveEdge(e))) {
-                    g2.fillRect(sx + e.getCol() * cell, sy + e.getRow() * cell, cell, cell);
-                }
-            }
-
-            // Corners
-            fillCorner(g2, Corner.NW, sx, sy, cell);
-            fillCorner(g2, Corner.NE, sx, sy, cell);
-            fillCorner(g2, Corner.SE, sx, sy, cell);
-            fillCorner(g2, Corner.SW, sx, sy, cell);
-        }
-
-        private void fillCorner(Graphics2D g2, Corner corner, int sx, int sy, int cell) {
-            if (!isCityTerrain(currentTile.getEffectiveCorner(corner))) return;
-
-            int cx = sx + corner.getCol() * cell;
-            int cy = sy + corner.getRow() * cell;
-
-            boolean nCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.NORTH));
-            boolean eCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.EAST));
-            boolean sCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.SOUTH));
-            boolean wCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.WEST));
-
-            g2.setColor(COLOR_CITY);
-
-            switch (corner) {
-                case NW -> {
-                    if (nCity && wCity) {
-                        g2.fillRect(cx, cy, cell, cell);
-                    } else if (nCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx, cy);
-                        p.addPoint(cx + cell, cy);
-                        p.addPoint(cx + cell, cy + cell);
-                        g2.fillPolygon(p);
-                    } else if (wCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx, cy);
-                        p.addPoint(cx, cy + cell);
-                        p.addPoint(cx + cell, cy + cell);
-                        g2.fillPolygon(p);
-                    }
-                }
-                case NE -> {
-                    if (nCity && eCity) {
-                        g2.fillRect(cx, cy, cell, cell);
-                    } else if (nCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx + cell, cy);
-                        p.addPoint(cx, cy);
-                        p.addPoint(cx, cy + cell);
-                        g2.fillPolygon(p);
-                    } else if (eCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx + cell, cy);
-                        p.addPoint(cx + cell, cy + cell);
-                        p.addPoint(cx, cy + cell);
-                        g2.fillPolygon(p);
-                    }
-                }
-                case SE -> {
-                    if (sCity && eCity) {
-                        g2.fillRect(cx, cy, cell, cell);
-                    } else if (sCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx + cell, cy + cell);
-                        p.addPoint(cx, cy + cell);
-                        p.addPoint(cx, cy);
-                        g2.fillPolygon(p);
-                    } else if (eCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx + cell, cy + cell);
-                        p.addPoint(cx + cell, cy);
-                        p.addPoint(cx, cy);
-                        g2.fillPolygon(p);
-                    }
-                }
-                case SW -> {
-                    if (sCity && wCity) {
-                        g2.fillRect(cx, cy, cell, cell);
-                    } else if (sCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx, cy + cell);
-                        p.addPoint(cx + cell, cy + cell);
-                        p.addPoint(cx + cell, cy);
-                        g2.fillPolygon(p);
-                    } else if (wCity) {
-                        Polygon p = new Polygon();
-                        p.addPoint(cx, cy + cell);
-                        p.addPoint(cx, cy);
-                        p.addPoint(cx + cell, cy);
-                        g2.fillPolygon(p);
-                    }
-                }
-            }
-        }
-
-        private void drawPaths(Graphics2D g2, int sx, int sy, int cell) {
-            TerrainType center = currentTile.getCenter();
-            Point centerPt = new Point(sx + (int) (1.5 * cell), sy + (int) (1.5 * cell));
-
-            drawPathNetwork(g2, sx, sy, cell, TerrainType.RIVER, LINE_RIVER, 8.0f, centerPt);
-
-            if (center == TerrainType.GATE) {
-                g2.setColor(LINE_ROAD);
-                g2.setStroke(new BasicStroke(6.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-
-                for (Edge e : Edge.values()) {
-                    if (currentTile.getEffectiveEdge(e) == TerrainType.ROAD) {
-                        Point outer = getEdgeOuterPoint(e, sx, sy, cell);
-                        Point gateEdgePoint = getCenterEntry(e, sx, sy, cell);
-                        g2.drawLine(outer.x, outer.y, gateEdgePoint.x, gateEdgePoint.y);
-                    }
-                }
-            } else {
-                drawPathNetwork(g2, sx, sy, cell, TerrainType.ROAD, LINE_ROAD, 6.0f, centerPt);
-            }
-        }
-
-        private void drawPathNetwork(Graphics2D g2, int sx, int sy, int cell, TerrainType pathType, Color color, float strokeWidth, Point centerPt) {
-            List<Edge> activeEdges = new ArrayList<>();
-            for (Edge e : Edge.values()) {
-                if (currentTile.getEffectiveEdge(e) == pathType) {
-                    activeEdges.add(e);
-                }
-            }
-
-            if (activeEdges.isEmpty()) return;
-
-            g2.setColor(color);
-            g2.setStroke(new BasicStroke(strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-
-            if (activeEdges.size() == 2 && Math.abs(activeEdges.get(0).getIndex() - activeEdges.get(1).getIndex()) == 2) {
-                Point p1 = getEdgeOuterPoint(activeEdges.get(0), sx, sy, cell);
-                Point p2 = getEdgeOuterPoint(activeEdges.get(1), sx, sy, cell);
-                g2.drawLine(p1.x, p1.y, p2.x, p2.y);
-                return;
-            }
-
-            for (Edge e : activeEdges) {
-                Point ep = getEdgeOuterPoint(e, sx, sy, cell);
-                Point cp = getCenterEntry(e, sx, sy, cell);
-
-                Path2D path = new Path2D.Float();
-                path.moveTo(ep.x, ep.y);
-                path.lineTo(cp.x, cp.y);
-                path.lineTo(centerPt.x, centerPt.y);
-                g2.draw(path);
-            }
-        }
-
-        private void drawWalls(Graphics2D g2, int sx, int sy, int cell) {
-            boolean allCity = true;
-            for (int r = 0; r < 3; r++) {
-                for (int c = 0; c < 3; c++) {
-                    if (!isCityTerrain(currentTile.getCell(r, c))) {
-                        allCity = false;
-                        break;
-                    }
-                }
-            }
-            if (allCity) return;
-
-            g2.setColor(LINE_WALL);
-            g2.setStroke(new BasicStroke(4.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-
-            // 1. Diagonal Walls for corner transitions
-            if (isDiagonalCorner(Corner.NW)) g2.drawLine(sx, sy, sx + cell, sy + cell);
-            if (isDiagonalCorner(Corner.NE)) g2.drawLine(sx + 3 * cell, sy, sx + 2 * cell, sy + cell);
-            if (isDiagonalCorner(Corner.SE)) g2.drawLine(sx + 3 * cell, sy + 3 * cell, sx + 2 * cell, sy + 2 * cell);
-            if (isDiagonalCorner(Corner.SW)) g2.drawLine(sx, sy + 3 * cell, sx + cell, sy + 2 * cell);
-
-            // 2. Horizontal Internal Cell Boundaries
-            for (int r = 0; r < 2; r++) {
-                for (int c = 0; c < 3; c++) {
-                    boolean top = isCityTerrain(currentTile.getCell(r, c));
-                    boolean bottom = isCityTerrain(currentTile.getCell(r + 1, c));
-
-                    if (top ^ bottom) {
-                        // Suppress straight wall if the cell is bounded diagonally
-                        if (r == 0 && c == 0 && isDiagonalCorner(Corner.NW)) continue;
-                        if (r == 0 && c == 2 && isDiagonalCorner(Corner.NE)) continue;
-                        if (r == 1 && c == 0 && isDiagonalCorner(Corner.SW)) continue;
-                        if (r == 1 && c == 2 && isDiagonalCorner(Corner.SE)) continue;
-
-                        int y = sy + (r + 1) * cell;
-                        int x1 = sx + c * cell;
-                        int x2 = x1 + cell;
-                        g2.drawLine(x1, y, x2, y);
-                    }
-                }
-            }
-
-            // 3. Vertical Internal Cell Boundaries
-            for (int c = 0; c < 2; c++) {
-                for (int r = 0; r < 3; r++) {
-                    boolean left = isCityTerrain(currentTile.getCell(r, c));
-                    boolean right = isCityTerrain(currentTile.getCell(r, c + 1));
-
-                    if (left ^ right) {
-                        // Suppress straight wall if the cell is bounded diagonally
-                        if (c == 0 && r == 0 && isDiagonalCorner(Corner.NW)) continue;
-                        if (c == 1 && r == 0 && isDiagonalCorner(Corner.NE)) continue;
-                        if (c == 0 && r == 2 && isDiagonalCorner(Corner.SW)) continue;
-                        if (c == 1 && r == 2 && isDiagonalCorner(Corner.SE)) continue;
-
-                        int x = sx + (c + 1) * cell;
-                        int y1 = sy + r * cell;
-                        int y2 = y1 + cell;
-                        g2.drawLine(x, y1, x, y2);
-                    }
-                }
-            }
-        }
-
-        private boolean isDiagonalCorner(Corner corner) {
-            if (!isCityTerrain(currentTile.getEffectiveCorner(corner))) return false;
-
-            boolean nCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.NORTH));
-            boolean eCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.EAST));
-            boolean sCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.SOUTH));
-            boolean wCity = isCityTerrain(currentTile.getEffectiveEdge(Edge.WEST));
-
-            return switch (corner) {
-                case NW -> nCity ^ wCity;
-                case NE -> nCity ^ eCity;
-                case SE -> sCity ^ eCity;
-                case SW -> sCity ^ wCity;
-            };
-        }
-
-        private boolean isCityTerrain(TerrainType type) {
-            return type == TerrainType.SETTLEMENT || type == TerrainType.GATE;
-        }
-
-        private void drawGate(Graphics2D g2, int sx, int sy, int cell) {
-            if (currentTile.getCenter() != TerrainType.GATE) return;
-
-            Edge roadEdge = null;
-            for (Edge e : Edge.values()) {
-                if (currentTile.getEffectiveEdge(e) == TerrainType.ROAD) {
-                    roadEdge = e;
-                    break;
-                }
-            }
-            if (roadEdge == null) return;
-
-            Point gatePt = getCenterEntry(roadEdge, sx, sy, cell);
-
-            g2.setColor(LINE_GATE);
-            g2.setStroke(new BasicStroke(5.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2.drawOval(gatePt.x - 10, gatePt.y - 10, 20, 20);
-
-            g2.setColor(new Color(60, 40, 20));
-            g2.fillOval(gatePt.x - 6, gatePt.y - 6, 12, 12);
-        }
-
-        private void drawGrid(Graphics2D g2, int sx, int sy, int cell) {
-            g2.setColor(LINE_GRID);
-            g2.setStroke(new BasicStroke(2.0f));
-
-            g2.drawRect(sx, sy, 3 * cell, 3 * cell);
-            g2.drawLine(sx + cell, sy, sx + cell, sy + 3 * cell);
-            g2.drawLine(sx + 2 * cell, sy, sx + 2 * cell, sy + 3 * cell);
-            g2.drawLine(sx, sy + cell, sx + 3 * cell, sy + cell);
-            g2.drawLine(sx, sy + 2 * cell, sx + 3 * cell, sy + 2 * cell);
-        }
-
-        private void drawLabels(Graphics2D g2, int sx, int sy, int cell) {
-            g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
-
-            // Row 0 (Top)
-            drawCenteredText(g2, "NW", currentTile.getEffectiveCorner(Corner.NW).name(), sx + cell / 2, sy + cell / 2);
-            drawCenteredText(g2, "NORTH", currentTile.getEffectiveEdge(Edge.NORTH).name(), sx + cell + cell / 2, sy + cell / 2);
-            drawCenteredText(g2, "NE", currentTile.getEffectiveCorner(Corner.NE).name(), sx + 2 * cell + cell / 2, sy + cell / 2);
-
-            // Row 1 (Middle)
-            drawCenteredText(g2, "WEST", currentTile.getEffectiveEdge(Edge.WEST).name(), sx + cell / 2, sy + cell + cell / 2);
-            drawCenteredText(g2, currentTile.getId(), currentTile.getCenter().name(), sx + cell + cell / 2, sy + cell + cell / 2);
-            drawCenteredText(g2, "EAST", currentTile.getEffectiveEdge(Edge.EAST).name(), sx + 2 * cell + cell / 2, sy + cell + cell / 2);
-
-            // Row 2 (Bottom)
-            drawCenteredText(g2, "SW", currentTile.getEffectiveCorner(Corner.SW).name(), sx + cell / 2, sy + 2 * cell + cell / 2);
-            drawCenteredText(g2, "SOUTH", currentTile.getEffectiveEdge(Edge.SOUTH).name(), sx + cell + cell / 2, sy + 2 * cell + cell / 2);
-            drawCenteredText(g2, "SE", currentTile.getEffectiveCorner(Corner.SE).name(), sx + 2 * cell + cell / 2, sy + 2 * cell + cell / 2);
-        }
-
-        private void drawCenteredText(Graphics2D g2, String title, String subtitle, int cx, int cy) {
-            FontMetrics fm = g2.getFontMetrics();
-            int h = fm.getHeight();
-
-            int tw1 = fm.stringWidth(title);
-            int tw2 = fm.stringWidth(subtitle);
-
-            int maxW = Math.max(tw1, tw2) + 8;
-            g2.setColor(new Color(255, 255, 255, 185));
-            g2.fillRect(cx - maxW / 2, cy - h, maxW, h * 2 + 2);
-
-            g2.setColor(Color.BLACK);
-            g2.drawString(title, cx - tw1 / 2, cy - 2);
-            g2.drawString(subtitle, cx - tw2 / 2, cy + h - 2);
-        }
-
-        private Point getEdgeOuterPoint(Edge edge, int sx, int sy, int cell) {
-            return switch (edge) {
-                case NORTH -> new Point(sx + cell + cell / 2, sy);
-                case EAST  -> new Point(sx + 3 * cell, sy + cell + cell / 2);
-                case SOUTH -> new Point(sx + cell + cell / 2, sy + 3 * cell);
-                case WEST  -> new Point(sx, sy + cell + cell / 2);
-            };
-        }
-
-        private Point getCenterEntry(Edge edge, int sx, int sy, int cell) {
-            return switch (edge) {
-                case NORTH -> new Point(sx + cell + cell / 2, sy + cell);
-                case EAST  -> new Point(sx + 2 * cell, sy + cell + cell / 2);
-                case SOUTH -> new Point(sx + cell + cell / 2, sy + 2 * cell);
-                case WEST  -> new Point(sx + cell, sy + cell + cell / 2);
-            };
+            g.setColor(Color.DARK_GRAY);
+            g.setFont(new Font("SansSerif", Font.BOLD, 11));
+            String title = currentTile.getId() + " [" + currentTile.getArchetype().name() + "] (" + currentTile.getFacing() + ")";
+            int tw = g.getFontMetrics().stringWidth(title);
+            g.drawString(title, (panelW - tw) / 2, 14);
         }
     }
 

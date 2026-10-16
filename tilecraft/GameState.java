@@ -17,7 +17,6 @@ public class GameState {
             throw new IllegalArgumentException("Must have at least 1 player.");
         }
 
-        // Distinct colors for player identification
         Color[] defaultColors = {
             new Color(30, 90, 180),   // Player 1 (Blue)
             new Color(190, 40, 40),   // Player 2 (Red)
@@ -36,7 +35,7 @@ public class GameState {
     }
 
     public void drawNewTile() {
-        this.currentTile = TileGenerator.generateTile();
+        this.currentTile = TileGenerator.drawForTurn();
     }
 
     public void endTurn() {

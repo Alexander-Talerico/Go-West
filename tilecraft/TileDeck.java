@@ -110,19 +110,19 @@ public enum TileDeck {
         { FIELD, RIVER, FIELD },
         { FIELD, RIVER, FIELD },
         { FIELD, RIVER, FIELD }
-    }, 5),
+    }, 0),
 
     RIVER_CURVE(new TerrainType[][] {
         { FIELD, RIVER, FIELD },
         { FIELD, RIVER, RIVER },
         { FIELD, FIELD, FIELD }
-    }, 5),
+    }, 0),
 
     PURE_FIELD(new TerrainType[][] {
         { FIELD, FIELD, FIELD },
         { FIELD, FIELD, FIELD },
         { FIELD, FIELD, FIELD }
-    }, 4);
+    }, 0);
 
     private final TerrainType[][] template;
     private final int weight;

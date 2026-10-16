@@ -5,8 +5,5 @@ public enum TerrainType {
     SETTLEMENT,
     ROAD,
     GATE,
-    RAILROAD,
-    MOUNTAIN,
     RIVER;
-    // Future additions: RAILROAD, MOUNTAIN, etc.
 }
