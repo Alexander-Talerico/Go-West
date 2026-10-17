@@ -2,7 +2,7 @@
 import java.io.*;
 import java.net.*;
 import javax.swing.*;
-import tilecraft.Tilecraft;
+import grid.Grid;
 
 public class Client {
 
@@ -106,7 +106,7 @@ public class Client {
 
             // Open the existing game window.
             SwingUtilities.invokeLater(() -> {
-                new Tilecraft().setVisible(true);
+                Grid.main(new String[0]);
             });
 
             // Keep the connection alive for now.
