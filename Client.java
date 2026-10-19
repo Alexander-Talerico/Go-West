@@ -2,6 +2,7 @@
 import java.io.*;
 import java.net.*;
 import javax.swing.*;
+import java.awt.Desktop;
 import grid.Grid;
 
 public class Client {
@@ -13,10 +14,8 @@ public class Client {
 
         try (
             Socket socket = new Socket(SERVER_IP, PORT);
-
             BufferedReader in = new BufferedReader(
                 new InputStreamReader(socket.getInputStream()));
-
             PrintWriter out = new PrintWriter(
                 socket.getOutputStream(), true)
         ) {
@@ -36,15 +35,11 @@ public class Client {
             );
 
             if (choice == 0) {
-
-                // Create a room.
                 out.println("CREATE");
 
                 String response = in.readLine();
 
-                if (response == null ||
-                    !response.startsWith("ROOM:")) {
-
+                if (response == null || !response.startsWith("ROOM:")) {
                     JOptionPane.showMessageDialog(
                         null, "Could not create room.");
                     return;
@@ -67,8 +62,6 @@ public class Client {
                 }
 
             } else if (choice == 1) {
-
-                // Join an existing room.
                 out.println("JOIN");
 
                 String response = in.readLine();
@@ -104,13 +97,56 @@ public class Client {
                 return;
             }
 
-            // Open the existing game window.
+            // Launch Tilecraft in a separate process.
+            try {
+                new ProcessBuilder(
+                    "java", "tilecraft.Tilecraft"
+                )
+                .directory(new File(System.getProperty("user.dir")))
+                .start();
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                    null,
+                    "Could not launch Tilecraft:\n" + e.getMessage()
+                );
+            }
+
+            // Launch Grid.
             SwingUtilities.invokeLater(() -> {
-                Grid.main(new String[0]);
+                try {
+                    Grid.main(new String[0]);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    JOptionPane.showMessageDialog(
+                        null,
+                        "Could not launch Grid:\n" + e.getMessage()
+                    );
+                }
             });
 
-            // Keep the connection alive for now.
-            // Multiplayer synchronization can be added here later.
+            // Open index.html.
+            try {
+                File htmlFile = new File(
+                    System.getProperty("user.dir"), "index.html"
+                );
+
+                if (htmlFile.exists() && Desktop.isDesktopSupported()) {
+                    Desktop.getDesktop().browse(htmlFile.toURI());
+                } else {
+                    JOptionPane.showMessageDialog(
+                        null,
+                        "Could not find index.html:\n"
+                            + htmlFile.getAbsolutePath()
+                    );
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(
+                    null,
+                    "Could not open index.html:\n" + e.getMessage()
+                );
+            }
+
+            // Keep the multiplayer connection alive.
             while (!socket.isClosed()) {
                 Thread.sleep(1000);
             }
@@ -119,7 +155,8 @@ public class Client {
             JOptionPane.showMessageDialog(
                 null,
                 "Could not connect to the server.\n"
-                + "Check that the server is running and the IP is correct.",
+                + "Check that the server is running and the IP is correct.\n\n"
+                + e.getMessage(),
                 "Connection Error",
                 JOptionPane.ERROR_MESSAGE
             );
