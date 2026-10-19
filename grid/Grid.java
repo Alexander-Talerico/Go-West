@@ -21,11 +21,10 @@ import tilecraft.TileGenerator;
 
 public class Grid extends JPanel {
 
-    private static final int ROWS = 10;
-    private static final int COLUMNS = 30;
+    private static final int ROWS = 8;
+    private static final int COLUMNS = 25;
     private static final int TILE_SIZE = 40;
 
-    // Tiles currently placed on the board
     private Tile[][] board = new Tile[ROWS][COLUMNS];
 
     private int hoveredRow = -1;
@@ -49,55 +48,13 @@ public class Grid extends JPanel {
                 int column = event.getX() / TILE_SIZE;
                 int row = event.getY() / TILE_SIZE;
 
-                if (row >= 0 && row < ROWS &&
-                    column >= 0 && column < COLUMNS) {
-
-                    // Shift and right click deletes a tile
-                    if (event.getButton() == MouseEvent.BUTTON3
-                            && event.isShiftDown()) {
-
-                        if (board[row][column] != null) {
-                            board[row][column] = null;
-                            System.out.println("Tile deleted");
-                        }
-                    }
-
-                    // Right click rotates a tile
-                    else if (event.getButton()
-                            == MouseEvent.BUTTON3) {
-
-                        if (board[row][column] != null) {
-                            board[row][column]
-                                .rotateClockwise();
-
-                            System.out.println(
-                                "Rotated "
-                                + board[row][column]
-                            );
-                        }
-                    }
-
-                    // Left click places a tile
-                    else if (event.getButton()
-                            == MouseEvent.BUTTON1) {
-
-                        if (board[row][column] == null) {
-                            board[row][column] =
-                                TileGenerator.generateTile();
-
-                            playSound(placeSound);
-
-                            System.out.println(
-                                "Placed "
-                                + board[row][column]
-                            );
-
-                            TileGenerator.onTilePlaced();
-                        }
-                    }
-
-                    repaint();
-                }
+                handleCellAction(
+                    row,
+                    column,
+                    event.getButton(),
+                    event.isShiftDown(),
+                    false
+                );
             }
 
             @Override
@@ -127,6 +84,57 @@ public class Grid extends JPanel {
                 }
             }
         });
+    }
+
+    public void handleCellAction(
+            int row,
+            int column,
+            int button,
+            boolean shiftDown,
+            boolean fromNetwork) {
+
+        if (row >= 0 && row < ROWS &&
+            column >= 0 && column < COLUMNS) {
+
+            boolean changed = false;
+
+            // Shift and right click deletes a tile
+            if (button == MouseEvent.BUTTON3 && shiftDown) {
+                if (board[row][column] != null) {
+                    board[row][column] = null;
+                    System.out.println("Tile deleted");
+                    changed = true;
+                }
+            }
+
+            // Right click rotates a tile
+            else if (button == MouseEvent.BUTTON3) {
+                if (board[row][column] != null) {
+                    board[row][column].rotateClockwise();
+                    System.out.println("Rotated " + board[row][column]);
+                    changed = true;
+                }
+            }
+
+            // Left click places a tile
+            else if (button == MouseEvent.BUTTON1) {
+                if (board[row][column] == null) {
+                    board[row][column] = TileGenerator.generateTile();
+                    playSound(placeSound);
+                    System.out.println("Placed " + board[row][column]);
+                    TileGenerator.onTilePlaced();
+                    changed = true;
+                }
+            }
+
+            if (changed && !fromNetwork) {
+                TileGenerator.sendNetworkMessage(
+                    "GRID:" + row + ":" + column + ":" + button + ":" + shiftDown
+                );
+            }
+
+            repaint();
+        }
     }
 
     @Override
@@ -207,34 +215,12 @@ public class Grid extends JPanel {
         }
     }
 
-    private void drawTile(Graphics graphics, Tile tile, int x, int y) {
+    private void drawTile(
+            Graphics graphics,
+            Tile tile,
+            int x,
+            int y) {
         tilecraft.Tilecraft.drawTile(graphics, tile, x, y, TILE_SIZE, false);
-    }
-
-    private Color getTerrainColor(
-            TerrainType terrain) {
-
-        if (terrain == TerrainType.FIELD) {
-            return new Color(150, 190, 105);
-        }
-
-        if (terrain == TerrainType.SETTLEMENT) {
-            return new Color(185, 95, 75);
-        }
-
-        if (terrain == TerrainType.ROAD) {
-            return new Color(105, 90, 75);
-        }
-
-        if (terrain == TerrainType.GATE) {
-            return new Color(215, 160, 55);
-        }
-
-        if (terrain == TerrainType.RIVER) {
-            return new Color(65, 145, 210);
-        }
-
-        return Color.MAGENTA;
     }
 
     private Clip loadSound(String fileName) {
@@ -284,7 +270,7 @@ public class Grid extends JPanel {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             JFrame window =
-                new JFrame("Go West Grid");
+                new JFrame("Go West");
 
             window.setDefaultCloseOperation(
                 JFrame.EXIT_ON_CLOSE

@@ -30,7 +30,6 @@ public class GameState {
             players.add(new Player(i + 1, "Player " + (i + 1), color));
         }
 
-        // Initial draw for turn 1
         drawNewTile();
     }
 

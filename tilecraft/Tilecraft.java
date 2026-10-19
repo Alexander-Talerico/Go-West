@@ -3,6 +3,8 @@ package tilecraft;
 import grid.Grid;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,11 +12,15 @@ import java.util.List;
 public class Tilecraft extends JFrame {
 
     public static final int DEFAULT_PLAYER_COUNT = 4;
+    private static final int FLAGS_PER_PLAYER = 7;
+    private static final int FLAG_RADIUS = 12;
 
     private final GameState gameState;
     private final Grid boardGrid;
     private final TileCanvas previewCanvas = new TileCanvas();
     private final JLabel headerLabel = new JLabel("", SwingConstants.CENTER);
+    private final JPanel flagBoxPanel = new JPanel();
+    private final FlagOverlay flagOverlay;
 
     public Tilecraft() {
         this(DEFAULT_PLAYER_COUNT);
@@ -51,17 +57,27 @@ public class Tilecraft extends JFrame {
 
         previewCanvas.setPreferredSize(new Dimension(220, 220));
 
+        flagBoxPanel.setPreferredSize(new Dimension(playerCount * 45 + 20, 90));
+        flagBoxPanel.setBackground(new Color(250, 250, 250));
+        flagBoxPanel.setBorder(BorderFactory.createLineBorder(new Color(160, 160, 160), 2));
+
         bottomPanel.add(btnRotateCCW);
         bottomPanel.add(previewCanvas);
         bottomPanel.add(btnRotateCW);
         bottomPanel.add(btnEndTurn);
+        bottomPanel.add(flagBoxPanel);
         add(bottomPanel, BorderLayout.SOUTH);
+
+        this.flagOverlay = new FlagOverlay(gameState.getPlayers());
+        setGlassPane(flagOverlay);
+        flagOverlay.setVisible(true);
 
         btnRotateCCW.addActionListener(e -> {
             Tile tile = gameState.getCurrentTile();
             if (tile != null) {
                 tile.rotateCounterClockwise();
                 updateUIState();
+                TileGenerator.sendNetworkMessage("ROTATE_CCW");
             }
         });
 
@@ -70,12 +86,14 @@ public class Tilecraft extends JFrame {
             if (tile != null) {
                 tile.rotateClockwise();
                 updateUIState();
+                TileGenerator.sendNetworkMessage("ROTATE_CW");
             }
         });
 
         btnEndTurn.addActionListener(e -> {
             gameState.endTurn();
             updateUIState();
+            TileGenerator.sendNetworkMessage("END_TURN");
         });
 
         TileGenerator.setPlacementListener(() -> {
@@ -89,6 +107,44 @@ public class Tilecraft extends JFrame {
         setResizable(false);
     }
 
+    public void handleNetworkMessage(String msg) {
+        if (msg == null) return;
+
+        if (msg.equals("ROTATE_CCW")) {
+            Tile tile = gameState.getCurrentTile();
+            if (tile != null) {
+                tile.rotateCounterClockwise();
+                updateUIState();
+            }
+        } else if (msg.equals("ROTATE_CW")) {
+            Tile tile = gameState.getCurrentTile();
+            if (tile != null) {
+                tile.rotateClockwise();
+                updateUIState();
+            }
+        } else if (msg.equals("END_TURN")) {
+            gameState.endTurn();
+            updateUIState();
+        } else if (msg.startsWith("GRID:")) {
+            String[] parts = msg.split(":");
+            if (parts.length == 5) {
+                int row = Integer.parseInt(parts[1]);
+                int col = Integer.parseInt(parts[2]);
+                int button = Integer.parseInt(parts[3]);
+                boolean shift = Boolean.parseBoolean(parts[4]);
+                boardGrid.handleCellAction(row, col, button, shift, true);
+            }
+        } else if (msg.startsWith("FLAG:")) {
+            String[] parts = msg.split(":");
+            if (parts.length == 4) {
+                int id = Integer.parseInt(parts[1]);
+                int x = Integer.parseInt(parts[2]);
+                int y = Integer.parseInt(parts[3]);
+                flagOverlay.moveMarkerFromNetwork(id, x, y);
+            }
+        }
+    }
+
     private void updateUIState() {
         Player current = gameState.getCurrentPlayer();
         headerLabel.setText(String.format("Turn %d: %s's Turn",
@@ -98,6 +154,169 @@ public class Tilecraft extends JFrame {
         previewCanvas.setTile(gameState.getCurrentTile());
         previewCanvas.repaint();
         boardGrid.repaint();
+        if (flagOverlay != null) {
+            flagOverlay.repaint();
+        }
+    }
+
+    private static class FlagMarker {
+        final int id;
+        final Color color;
+        final int pileIndex;
+        final int stackIndex;
+        int x;
+        int y;
+        boolean draggedFromPile = false;
+
+        FlagMarker(int id, Color color, int pileIndex, int stackIndex) {
+            this.id = id;
+            this.color = color;
+            this.pileIndex = pileIndex;
+            this.stackIndex = stackIndex;
+        }
+    }
+
+    private class FlagOverlay extends JComponent {
+        private final List<FlagMarker> markers = new ArrayList<>();
+        private FlagMarker activeMarker = null;
+        private int offsetX = 0;
+        private int offsetY = 0;
+
+        public FlagOverlay(List<Player> players) {
+            setOpaque(false);
+
+            int nextId = 0;
+            for (int p = 0; p < players.size(); p++) {
+                Color color = players.get(p).getBannerColor();
+                for (int i = 0; i < FLAGS_PER_PLAYER; i++) {
+                    markers.add(new FlagMarker(nextId++, color, p, i));
+                }
+            }
+
+            MouseAdapter adapter = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    updatePilePositions();
+                    FlagMarker hit = findTopMarkerAt(e.getX(), e.getY());
+                    if (hit != null) {
+                        activeMarker = hit;
+                        activeMarker.draggedFromPile = true;
+                        offsetX = e.getX() - activeMarker.x;
+                        offsetY = e.getY() - activeMarker.y;
+                        markers.remove(activeMarker);
+                        markers.add(activeMarker);
+                        repaint();
+                        TileGenerator.sendNetworkMessage(
+                            "FLAG:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y
+                        );
+                    }
+                }
+
+                @Override
+                public void mouseDragged(MouseEvent e) {
+                    if (activeMarker != null) {
+                        activeMarker.x = e.getX() - offsetX;
+                        activeMarker.y = e.getY() - offsetY;
+                        repaint();
+                        TileGenerator.sendNetworkMessage(
+                            "FLAG:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y
+                        );
+                    }
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    if (activeMarker != null) {
+                        TileGenerator.sendNetworkMessage(
+                            "FLAG:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y
+                        );
+                        activeMarker = null;
+                        repaint();
+                    }
+                }
+            };
+
+            addMouseListener(adapter);
+            addMouseMotionListener(adapter);
+        }
+
+        public void moveMarkerFromNetwork(int id, int x, int y) {
+            updatePilePositions();
+            FlagMarker target = null;
+            for (FlagMarker m : markers) {
+                if (m.id == id) {
+                    target = m;
+                    break;
+                }
+            }
+            if (target != null) {
+                target.draggedFromPile = true;
+                target.x = x;
+                target.y = y;
+                markers.remove(target);
+                markers.add(target);
+                repaint();
+            }
+        }
+
+        private void updatePilePositions() {
+            if (!flagBoxPanel.isShowing()) return;
+            Point boxOrigin = SwingUtilities.convertPoint(flagBoxPanel, 0, 0, this);
+            int numPlayers = gameState.getPlayerCount();
+            int slotWidth = flagBoxPanel.getWidth() / numPlayers;
+            int baseCenterY = boxOrigin.y + flagBoxPanel.getHeight() / 2 + 12;
+
+            for (FlagMarker m : markers) {
+                if (!m.draggedFromPile) {
+                    m.x = boxOrigin.x + slotWidth * m.pileIndex + slotWidth / 2;
+                    m.y = baseCenterY - (m.stackIndex * 4);
+                }
+            }
+        }
+
+        private FlagMarker findTopMarkerAt(int mx, int my) {
+            for (int i = markers.size() - 1; i >= 0; i--) {
+                FlagMarker m = markers.get(i);
+                int dx = mx - m.x;
+                int dy = my - m.y;
+                if (dx * dx + dy * dy <= FLAG_RADIUS * FLAG_RADIUS) {
+                    return m;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public boolean contains(int x, int y) {
+            if (activeMarker != null) return true;
+            updatePilePositions();
+            return findTopMarkerAt(x, y) != null;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            updatePilePositions();
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int d = FLAG_RADIUS * 2;
+            for (FlagMarker m : markers) {
+                g2.setColor(m.color);
+                g2.fillOval(m.x - FLAG_RADIUS, m.y - FLAG_RADIUS, d, d);
+
+                g2.setColor(Color.WHITE);
+                g2.setStroke(new BasicStroke(2.0f));
+                g2.drawOval(m.x - FLAG_RADIUS, m.y - FLAG_RADIUS, d, d);
+
+                g2.setColor(Color.DARK_GRAY);
+                g2.setStroke(new BasicStroke(1.0f));
+                g2.drawOval(m.x - FLAG_RADIUS, m.y - FLAG_RADIUS, d, d);
+            }
+
+            g2.dispose();
+        }
     }
 
     private static final Color COLOR_FIELD = new Color(225, 245, 225);
@@ -125,7 +344,7 @@ public class Tilecraft extends JFrame {
         drawGrid(g2, sx, sy, cell, scale);
 
         if (showLabels) {
-            //drawLabels(g2, tile, sx, sy, cell);
+            drawLabels(g2, tile, sx, sy, cell);
         }
 
         g2.dispose();
@@ -398,42 +617,10 @@ public class Tilecraft extends JFrame {
     private static void drawGrid(Graphics2D g2, int sx, int sy, int cell, float scale) {
         g2.setColor(LINE_GRID);
         g2.setStroke(new BasicStroke(Math.max(0.6f, 2.0f * scale)));
-
         g2.drawRect(sx, sy, 3 * cell, 3 * cell);
     }
 
-    /*private static void drawLabels(Graphics2D g2, Tile currentTile, int sx, int sy, int cell) {
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
-
-        // Row 0
-        drawCenteredText(g2, "NW", currentTile.getEffectiveCorner(Corner.NW).name(), sx + cell / 2, sy + cell / 2);
-        drawCenteredText(g2, "NORTH", currentTile.getEffectiveEdge(Edge.NORTH).name(), sx + cell + cell / 2, sy + cell / 2);
-        drawCenteredText(g2, "NE", currentTile.getEffectiveCorner(Corner.NE).name(), sx + 2 * cell + cell / 2, sy + cell / 2);
-
-        // Row 1
-        drawCenteredText(g2, "WEST", currentTile.getEffectiveEdge(Edge.WEST).name(), sx + cell / 2, sy + cell + cell / 2);
-        drawCenteredText(g2, currentTile.getId(), currentTile.getCenter().name(), sx + cell + cell / 2, sy + cell + cell / 2);
-        drawCenteredText(g2, "EAST", currentTile.getEffectiveEdge(Edge.EAST).name(), sx + 2 * cell + cell / 2, sy + cell + cell / 2);
-
-        // Row 2
-        drawCenteredText(g2, "SW", currentTile.getEffectiveCorner(Corner.SW).name(), sx + cell / 2, sy + 2 * cell + cell / 2);
-        drawCenteredText(g2, "SOUTH", currentTile.getEffectiveEdge(Edge.SOUTH).name(), sx + cell + cell / 2, sy + 2 * cell + cell / 2);
-        drawCenteredText(g2, "SE", currentTile.getEffectiveCorner(Corner.SE).name(), sx + 2 * cell + cell / 2, sy + 2 * cell + cell / 2);
-    }*/
-
-    private static void drawCenteredText(Graphics2D g2, String title, String subtitle, int cx, int cy) {
-        FontMetrics fm = g2.getFontMetrics();
-        int h = fm.getHeight();
-        int tw1 = fm.stringWidth(title);
-        int tw2 = fm.stringWidth(subtitle);
-
-        int maxW = Math.max(tw1, tw2) + 6;
-        g2.setColor(new Color(255, 255, 255, 185));
-        g2.fillRect(cx - maxW / 2, cy - h, maxW, h * 2 + 2);
-
-        g2.setColor(Color.BLACK);
-        g2.drawString(title, cx - tw1 / 2, cy - 2);
-        g2.drawString(subtitle, cx - tw2 / 2, cy + h - 2);
+    private static void drawLabels(Graphics2D g2, Tile currentTile, int sx, int sy, int cell) {
     }
 
     private static Point getEdgeOuterPoint(Edge edge, int sx, int sy, int cell) {
@@ -472,17 +659,11 @@ public class Tilecraft extends JFrame {
 
             int panelW = getWidth();
             int panelH = getHeight();
-            int size = Math.min(panelW, panelH) - 30;
+            int size = Math.min(panelW, panelH) - 16;
             int startX = (panelW - size) / 2;
-            int startY = 22;
+            int startY = (panelH - size) / 2;
 
-            drawTile(g, currentTile, startX, startY, size, true);
-
-            g.setColor(Color.DARK_GRAY);
-            g.setFont(new Font("SansSerif", Font.BOLD, 11));
-            String title = currentTile.getId() + " [" + currentTile.getArchetype().name() + "] (" + currentTile.getFacing() + ")";
-            int tw = g.getFontMetrics().stringWidth(title);
-            g.drawString(title, (panelW - tw) / 2, 14);
+            drawTile(g, currentTile, startX, startY, size, false);
         }
     }
 

@@ -2,6 +2,7 @@ package tilecraft;
 
 import java.util.Arrays;
 import java.util.Random;
+import java.util.function.Consumer;
 
 public class TileGenerator {
 
@@ -10,14 +11,29 @@ public class TileGenerator {
 
     private static Tile stagedTile = null;
     private static Runnable placementListener = null;
+    private static Consumer<String> networkSender = null;
 
-    // Used by GameState to pre-draw the player's tile for their turn
+    public static void setSeed(long seed) {
+        RNG.setSeed(seed);
+        counter = 1;
+        stagedTile = null;
+    }
+
+    public static void setNetworkSender(Consumer<String> sender) {
+        networkSender = sender;
+    }
+
+    public static void sendNetworkMessage(String message) {
+        if (networkSender != null) {
+            networkSender.accept(message);
+        }
+    }
+
     public static Tile drawForTurn() {
         stagedTile = createRandomTile();
         return stagedTile;
     }
 
-    // Called by Grid.java when the player clicks the board to place the tile
     public static Tile generateTile() {
         if (stagedTile != null) {
             Tile placed = stagedTile;
