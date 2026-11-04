@@ -4,9 +4,61 @@ import java.util.*;
 
 public class Server {
 
-    private static final int PORT = 5000;
-    private static final int MAX_PLAYERS = 4;
+   private static final int PORT = 5000;
+private static final int DISCOVERY_PORT = 5001;
+private static final int MAX_PLAYERS = 4;
+private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
+private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
     private static final Map<String, Room> rooms = new HashMap<>();
+
+private static void startDiscoveryListener() {
+    Thread discoveryThread = new Thread(() -> {
+        try (DatagramSocket socket = new DatagramSocket(DISCOVERY_PORT)) {
+
+            socket.setBroadcast(true);
+
+            byte[] buffer = new byte[1024];
+
+            System.out.println("LAN discovery running on UDP port " + DISCOVERY_PORT);
+
+            while (true) {
+                DatagramPacket request = new DatagramPacket(
+                    buffer, buffer.length
+                );
+
+                socket.receive(request);
+
+                String message = new String(
+                    request.getData(),
+                    0,
+                    request.getLength()
+                );
+
+                if (DISCOVERY_REQUEST.equals(message.trim())) {
+
+                    String response = DISCOVERY_RESPONSE + PORT;
+
+                    byte[] responseData = response.getBytes();
+
+                    DatagramPacket reply = new DatagramPacket(
+                        responseData,
+                        responseData.length,
+                        request.getAddress(),
+                        request.getPort()
+                    );
+
+                    socket.send(reply);
+                }
+            }
+
+        } catch (IOException e) {
+            System.out.println("LAN discovery stopped: " + e.getMessage());
+        }
+    });
+
+    discoveryThread.setDaemon(true);
+    discoveryThread.start();
+}
 
     private static class Room {
         final List<PrintWriter> clients = new ArrayList<>();
@@ -33,9 +85,12 @@ public class Server {
     }
 
     public static void main(String[] args) {
-        try (ServerSocket server = new ServerSocket(PORT)) {
-            System.out.println("Server running on port " + PORT);
-            System.out.println("Waiting for players...");
+       try (ServerSocket server = new ServerSocket(PORT)) {
+
+    startDiscoveryListener();
+
+    System.out.println("Server running on port " + PORT);
+    System.out.println("Waiting for players...");
 
             while (true) {
                 Socket socket = server.accept();
