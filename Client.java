@@ -2,27 +2,98 @@ import java.io.*;
 import java.net.*;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.Desktop;
+
 import tilecraft.Tilecraft;
 import tilecraft.TileGenerator;
 
 public class Client {
 
-    private static final String LOCAL_IP = "127.0.0.1";
-    private static final String LAN_IP = "192.168.1.9";
-    private static final int PORT = 5000;
+private static final int PORT = 5000;
+private static final int DISCOVERY_PORT = 5001;
+private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
+private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
 
     private static Socket connectToServer() throws IOException {
-        try {
-            Socket s = new Socket();
-            s.connect(new InetSocketAddress(LOCAL_IP, PORT), 1500);
-            return s;
-        } catch (IOException e) {
-            Socket s = new Socket();
-            s.connect(new InetSocketAddress(LAN_IP, PORT), 3000);
-            return s;
-        }
+    try {
+        Socket socket = new Socket();
+        socket.connect(
+            new InetSocketAddress("127.0.0.1", PORT),
+            1000
+        );
+        System.out.println("Connected to local server.");
+        return socket;
+
+    } catch (IOException ignored) {
     }
+
+    System.out.println("Searching for Tilecraft servers...");
+
+    try (DatagramSocket discoverySocket = new DatagramSocket()) {
+
+        discoverySocket.setBroadcast(true);
+        discoverySocket.setSoTimeout(4000);
+
+        byte[] requestData = DISCOVERY_REQUEST.getBytes();
+        DatagramPacket request = new DatagramPacket(
+            requestData,
+            requestData.length,
+            InetAddress.getByName("255.255.255.255"),
+            DISCOVERY_PORT
+        );
+
+        discoverySocket.send(request);
+
+        byte[] responseBuffer = new byte[1024];
+
+        while (true) {
+
+            DatagramPacket response = new DatagramPacket(
+                responseBuffer,
+                responseBuffer.length
+            );
+
+            discoverySocket.receive(response);
+
+            String message = new String(
+                response.getData(),
+                0,
+                response.getLength()
+            ).trim();
+
+            if (message.startsWith(DISCOVERY_RESPONSE)) {
+
+                int serverPort = Integer.parseInt(
+                    message.substring(DISCOVERY_RESPONSE.length())
+                );
+
+                InetAddress serverAddress = response.getAddress();
+
+                System.out.println(
+                    "Found Tilecraft server at: "
+                    + serverAddress.getHostAddress()
+                );
+
+                Socket socket = new Socket();
+
+                socket.connect(
+                    new InetSocketAddress(serverAddress, serverPort),
+                    3000
+                );
+
+                System.out.println("Connected to Tilecraft server!");
+
+                return socket;
+            }
+        }
+
+    } catch (SocketTimeoutException e) {
+        throw new IOException(
+            "No Tilecraft server found on your local network.\n"
+            + "Make sure someone has started the server.",
+            e
+        );
+    }
+}
 
     public static void main(String[] args) {
 
