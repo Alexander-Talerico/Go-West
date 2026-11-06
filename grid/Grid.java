@@ -15,15 +15,19 @@ import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
-import tilecraft.TerrainType;
 import tilecraft.Tile;
 import tilecraft.TileGenerator;
+import tilecraft.TileDeck;
 
 public class Grid extends JPanel {
 
     private static final int ROWS = 8;
     private static final int COLUMNS = 25;
     private static final int TILE_SIZE = 40;
+    private static final int WEST_WIDTH = 80;
+    private static final int EAST_WIDTH = 80;
+    private static final int[] EAST_ROAD_ROWS = {1, 3, 5, 7};
+    private final Tile[] eastRoadTiles = new Tile[EAST_ROAD_ROWS.length];
 
     private Tile[][] board = new Tile[ROWS][COLUMNS];
 
@@ -33,10 +37,16 @@ public class Grid extends JPanel {
     private Clip placeSound;
 
     public Grid() {
-        int width = COLUMNS * TILE_SIZE;
+        int width = WEST_WIDTH + COLUMNS * TILE_SIZE + EAST_WIDTH;
         int height = ROWS * TILE_SIZE;
 
         setPreferredSize(new Dimension(width, height));
+
+        for (int i = 0; i < eastRoadTiles.length; i++) {
+            Tile road = new Tile("east-start-" + (i + 1), TileDeck.ROAD_STRAIGHT);
+            road.rotateClockwise();
+            eastRoadTiles[i] = road;
+        }
 
         placeSound = loadSound(
             "/sounds/place-tile-sound.wav"
@@ -45,8 +55,18 @@ public class Grid extends JPanel {
         addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
-                int column = event.getX() / TILE_SIZE;
-                int row = event.getY() / TILE_SIZE;
+                int x = event.getX();
+                int y = event.getY();
+
+                if (x < WEST_WIDTH ||
+                    x >= WEST_WIDTH + COLUMNS * TILE_SIZE ||
+                    y < 0 ||
+                    y >= ROWS * TILE_SIZE) {
+                    return;
+                }
+
+                int column = (x - WEST_WIDTH) / TILE_SIZE;
+                int row = y / TILE_SIZE;
 
                 handleCellAction(
                     row,
@@ -68,11 +88,17 @@ public class Grid extends JPanel {
         addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent event) {
-                int newColumn =
-                    event.getX() / TILE_SIZE;
+                int newRow = -1;
+                int newColumn = -1;
 
-                int newRow =
-                    event.getY() / TILE_SIZE;
+                if (event.getX() >= WEST_WIDTH &&
+                    event.getX() < WEST_WIDTH + COLUMNS * TILE_SIZE &&
+                    event.getY() >= 0 &&
+                    event.getY() < ROWS * TILE_SIZE) {
+
+                    newColumn = (event.getX() - WEST_WIDTH) / TILE_SIZE;
+                    newRow = event.getY() / TILE_SIZE;
+                }
 
                 if (newRow != hoveredRow ||
                     newColumn != hoveredColumn) {
@@ -140,13 +166,14 @@ public class Grid extends JPanel {
     @Override
     protected void paintComponent(Graphics graphics) {
         super.paintComponent(graphics);
+        drawSideAreas(graphics);
 
         for (int row = 0; row < ROWS; row++) {
             for (int column = 0;
                  column < COLUMNS;
                  column++) {
 
-                int x = column * TILE_SIZE;
+                int x = WEST_WIDTH + column * TILE_SIZE;
                 int y = row * TILE_SIZE;
 
                 if (board[row][column] == null) {
@@ -213,6 +240,52 @@ public class Grid extends JPanel {
                 }
             }
         }
+    }
+
+    private void drawSideAreas(Graphics graphics) {
+    int height = ROWS * TILE_SIZE;
+    int eastX = WEST_WIDTH + COLUMNS * TILE_SIZE;
+
+    // West Section
+    graphics.setColor(new Color(95, 110, 105));
+    graphics.fillRect(0, 0, WEST_WIDTH, height);
+
+    graphics.setColor(Color.WHITE);
+    graphics.drawString("WEST", 23, 20);
+
+    // East Section
+    graphics.setColor(new Color(205, 185, 145));
+    graphics.fillRect(eastX, 0, EAST_WIDTH, height);
+
+    graphics.setColor(Color.BLACK);
+    graphics.drawString("EAST", eastX + 23, 20);
+
+    for (int i = 0; i < EAST_ROAD_ROWS.length; i++) {
+        int y = EAST_ROAD_ROWS[i] * TILE_SIZE;
+
+        tilecraft.Tilecraft.drawTile(
+            graphics,
+            eastRoadTiles[i],
+            eastX,
+            y,
+            TILE_SIZE,
+            false
+        );
+    }
+
+    graphics.setColor(Color.BLACK);
+    graphics.drawLine(WEST_WIDTH - 1, 0, WEST_WIDTH - 1, height);
+    graphics.drawLine(eastX, 0, eastX, height);
+}
+
+    public Tile getEastStarterTile(int row) {
+        for (int i = 0; i < EAST_ROAD_ROWS.length; i++) {
+            if (EAST_ROAD_ROWS[i] == row) {
+                return eastRoadTiles[i];
+            }
+        }
+
+        return null;
     }
 
     private void drawTile(
