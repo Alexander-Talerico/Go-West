@@ -23,9 +23,9 @@ public class Grid extends JPanel {
 
     private static final int ROWS = 8;
     private static final int COLUMNS = 25;
-    private static final int TILE_SIZE = 40;
-    private static final int WEST_WIDTH = 80;
-    private static final int EAST_WIDTH = 80;
+    private static final int TILE_SIZE = 30;
+    private static final int WEST_WIDTH = 60;
+    private static final int EAST_WIDTH = 60;
     private static final int[] EAST_ROAD_ROWS = {1, 3, 5, 7};
     private final Tile[] eastRoadTiles = new Tile[EAST_ROAD_ROWS.length];
 
@@ -251,14 +251,14 @@ public class Grid extends JPanel {
     graphics.fillRect(0, 0, WEST_WIDTH, height);
 
     graphics.setColor(Color.WHITE);
-    graphics.drawString("WEST", 23, 20);
+    graphics.drawString("WEST", 12, 20);
 
     // East Section
     graphics.setColor(new Color(205, 185, 145));
     graphics.fillRect(eastX, 0, EAST_WIDTH, height);
 
     graphics.setColor(Color.BLACK);
-    graphics.drawString("EAST", eastX + 23, 20);
+    graphics.drawString("EAST", eastX + 14, 20);
 
     for (int i = 0; i < EAST_ROAD_ROWS.length; i++) {
         int y = EAST_ROAD_ROWS[i] * TILE_SIZE;

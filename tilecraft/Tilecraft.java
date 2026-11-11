@@ -1,5 +1,5 @@
 package tilecraft;
-
+import scoreboard.Scoreboard;
 import grid.Grid;
 import javax.swing.*;
 import java.awt.*;
@@ -42,9 +42,16 @@ public class Tilecraft extends JFrame {
         topPanel.add(headerLabel, BorderLayout.CENTER);
         add(topPanel, BorderLayout.NORTH);
 
-        JPanel gridWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+        JPanel gridWrapper = new JPanel(new BorderLayout(10, 0));
         gridWrapper.setBackground(new Color(210, 210, 210));
-        gridWrapper.add(boardGrid);
+        gridWrapper.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JPanel boardHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        boardHolder.setOpaque(false);
+        boardHolder.add(boardGrid);
+
+        gridWrapper.add(boardHolder, BorderLayout.CENTER);
+        gridWrapper.add(new Scoreboard(), BorderLayout.EAST);
         add(gridWrapper, BorderLayout.CENTER);
 
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 8));
