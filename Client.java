@@ -2,12 +2,12 @@ import java.io.*;
 import java.net.*;
 import javax.swing.*;
 import java.awt.*;
-
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import tilecraft.Tilecraft;
 import tilecraft.TileGenerator;
 
 public class Client {
-
 private static final int PORT = 5000;
 private static final int DISCOVERY_PORT = 5001;
 private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
@@ -94,7 +94,33 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
         );
     }
 }
+private static class BackgroundPanel extends JPanel {
+    private BufferedImage background;
 
+    public BackgroundPanel(String imagePath) {
+        try {
+            background = ImageIO.read(new File(imagePath));
+        } catch (IOException e) {
+            System.out.println("Could not load background.png");
+            e.printStackTrace();
+        }
+    }
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+
+        if (background != null) {
+            g.drawImage(
+                background,
+                0,
+                0,
+                getWidth(),
+                getHeight(),
+                this
+            );
+        }
+    }
+}
     public static void main(String[] args) {
 
         try (
@@ -106,18 +132,59 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
         ) {
             in.readLine();
 
-            String[] options = {"Create Room", "Join Room"};
+            final int[] selectedChoice = {-1};
 
-            int choice = JOptionPane.showOptionDialog(
-                null,
-                "Create or join a room?",
-                "Tilecraft Multiplayer",
-                JOptionPane.DEFAULT_OPTION,
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                options,
-                options[0]
-            );
+        JFrame menuFrame = new JFrame("Tilecraft Multiplayer");
+        BackgroundPanel backgroundPanel = new BackgroundPanel("background.png");
+        backgroundPanel.setLayout(new GridBagLayout());
+        JButton createButton = new JButton("Create Room");
+        JButton joinButton = new JButton("Join Room");
+        createButton.setFont(new Font("SansSerif", Font.BOLD, 20));
+        joinButton.setFont(new Font("SansSerif", Font.BOLD, 20));
+        createButton.setPreferredSize(new Dimension(200, 42));
+        joinButton.setPreferredSize(new Dimension(200, 42));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0;
+        gbc.insets = new Insets(12, 0, 12, 0);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        createButton.addActionListener(e -> {
+            selectedChoice[0] = 0;
+            menuFrame.dispose();
+        });
+
+        joinButton.addActionListener(e -> {
+        selectedChoice[0] = 1;
+        menuFrame.dispose();
+        });
+
+        gbc.gridy = 0;
+        backgroundPanel.add(createButton, gbc);
+
+        gbc.gridy = 1;
+        backgroundPanel.add(joinButton, gbc);
+
+        menuFrame.setContentPane(backgroundPanel);
+        menuFrame.setSize(900, 650);
+        menuFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        menuFrame.setLocationRelativeTo(null);
+        menuFrame.setResizable(false);
+        menuFrame.setVisible(true);
+
+        while (menuFrame.isDisplayable() && selectedChoice[0] == -1) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+
+        int choice = selectedChoice[0];
+
+        if (choice == -1) {
+            return;
+        }
 
             String roomCode = "";
             boolean isHost = false;
@@ -144,10 +211,51 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
                     return;
                 }
 
-                String code = JOptionPane.showInputDialog(null, "Enter room code:");
-                if (code == null || code.trim().isEmpty()) {
-                    return;
-                }
+                //String code = JOptionPane.showInputDialog(null, "Enter room code:");
+                final String[] enteredCode = {null};
+
+            JFrame codeFrame = new JFrame("Join Room");
+            BackgroundPanel codePanel = new BackgroundPanel("background.png");
+
+            codePanel.setLayout(new GridBagLayout());
+
+            JTextField codeField = new JTextField("Join a Room", 12);
+            codeField.setHorizontalAlignment(JTextField.CENTER);
+            codeField.setFont(new Font("SansSerif", Font.BOLD, 20));
+
+            JButton joinRoomButton = new JButton("JOIN");
+
+            joinRoomButton.addActionListener(e -> {
+            enteredCode[0] = codeField.getText().trim().toUpperCase();
+            codeFrame.dispose();
+            });
+
+            GridBagConstraints joinScreen = new GridBagConstraints();
+            joinScreen.gridx = 0;
+            joinScreen.insets = new Insets(10, 0, 10, 0);
+
+            joinScreen.gridy = 1;
+            codePanel.add(codeField, joinScreen);
+
+            joinScreen.gridy = 2;
+            codePanel.add(joinRoomButton, joinScreen);
+
+            codeFrame.setContentPane(codePanel);
+            codeFrame.setSize(900, 650);
+            codeFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            codeFrame.setLocationRelativeTo(null);
+            codeFrame.setResizable(false);
+            codeFrame.setVisible(true);
+
+while (codeFrame.isDisplayable() && enteredCode[0] == null) {
+    Thread.sleep(100);
+}
+
+String code = enteredCode[0];
+
+if (code == null || code.isEmpty()) {
+    return;
+}
 
                 roomCode = code.trim().toUpperCase();
                 out.println(roomCode);
@@ -171,6 +279,11 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
             final int startCount = initialCount;
 
             JFrame lobbyFrame = new JFrame(isHost ? "Host Lobby - Room " + finalCode : "Lobby - Room " + finalCode);
+            lobbyFrame.setSize(900, 650);
+            lobbyFrame.setResizable(false);
+            BackgroundPanel lobbyBackground = new BackgroundPanel("background.png");
+            lobbyBackground.setLayout(new BorderLayout(10, 10));
+            lobbyFrame.setContentPane(lobbyBackground);
             JLabel statusLabel = new JLabel("Players in room: " + startCount + " / 4", SwingConstants.CENTER);
             JTextArea logArea = new JTextArea(6, 28);
             JButton startButton = new JButton("Start Game");
@@ -179,18 +292,23 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
                 lobbyFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
                 lobbyFrame.setLayout(new BorderLayout(10, 10));
 
-                JPanel topPanel = new JPanel(new GridLayout(2, 1, 4, 4));
-                topPanel.setBorder(BorderFactory.createEmptyBorder(12, 15, 5, 15));
+                JPanel topPanel = new JPanel(new GridLayout(2, 1, 8, 8));
+                topPanel.setOpaque(false);
+                topPanel.setBorder(BorderFactory.createEmptyBorder(315, 15, 5, 15));
 
                 JLabel codeLabel = new JLabel("Room Code: " + finalCode, SwingConstants.CENTER);
                 codeLabel.setFont(new Font("SansSerif", Font.BOLD, 20));
+                codeLabel.setForeground(Color.WHITE);
+                 codeLabel.setOpaque(false);
+               
                 statusLabel.setFont(new Font("SansSerif", Font.PLAIN, 14));
-
+                statusLabel.setForeground(Color.WHITE);
+                statusLabel.setOpaque(false);
                 topPanel.add(codeLabel);
                 topPanel.add(statusLabel);
                 lobbyFrame.add(topPanel, BorderLayout.NORTH);
 
-                logArea.setEditable(false);
+                /*logArea.setEditable(false);
                 logArea.setFont(new Font("SansSerif", Font.PLAIN, 13));
                 if (finalIsHost) {
                     logArea.append("You created the room (Player 1).\n");
@@ -199,13 +317,22 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
                     logArea.append("Joined room as Player " + startCount + "!\n");
                     logArea.append("Waiting for the host to start the game...\n");
                 }
-
+                */
                 JScrollPane scroll = new JScrollPane(logArea);
-                scroll.setBorder(BorderFactory.createEmptyBorder(0, 15, 5, 15));
+                scroll.setOpaque(false);
+                scroll.getViewport().setOpaque(false);
+
+                scroll.setBorder(null);
+
+                logArea.setOpaque(false);
+                logArea.setBackground(new Color(0, 0, 0, 0));
+                logArea.setForeground(Color.WHITE);
+
                 lobbyFrame.add(scroll, BorderLayout.CENTER);
 
                 if (finalIsHost) {
                     JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+                    bottomPanel.setOpaque(false);
                     bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 15, 12, 15));
                     startButton.setFont(new Font("SansSerif", Font.BOLD, 14));
                     startButton.addActionListener(e -> {
@@ -215,8 +342,6 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
                     bottomPanel.add(startButton);
                     lobbyFrame.add(bottomPanel, BorderLayout.SOUTH);
                 }
-
-                lobbyFrame.pack();
                 lobbyFrame.setLocationRelativeTo(null);
                 lobbyFrame.setVisible(true);
             });
