@@ -8,6 +8,7 @@ public class Player {
     private final int id;
     private final String name;
     private final Color bannerColor;
+    private double score = 0.0;
 
     public Player(int id, String name, Color bannerColor) {
         this.id = id;
@@ -31,8 +32,18 @@ public class Player {
         return bannerColor;
     }
 
+    public double getScore() {
+        return score;
+    }
+
+    public void addPoints(double points) {
+        this.score += points;
+        // Round to 2 decimal places
+        this.score = Math.round(this.score * 100.0) / 100.0;
+    }
+
     @Override
     public String toString() {
-        return "%s (P%d)".formatted(name, id);
+        return "%s (P%d) - %.2f pts".formatted(name, id, score);
     }
 }

@@ -1,33 +1,59 @@
 package scoreboard;
+
+import tilecraft.Player;
 import javax.swing.*;
 import java.awt.*;
-import java.io.*;
-import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class Scoreboard extends JPanel {
 
-    ArrayList<String> names = new ArrayList<String>();
-    ArrayList<Integer> scores = new ArrayList<Integer>();
-
-    JTextField nameBox;
-    JPanel list;
-    JPanel stuff;
-    JButton minButton;
+    private List<Player> players = Collections.emptyList();
+    private final JPanel list;
+    private final JPanel stuff;
+    private final JButton minButton;
 
     public Scoreboard() {
+        this(Collections.emptyList());
+    }
 
-        setLayout(new BorderLayout());
-        setPreferredSize(new Dimension(300, 320));
+    public Scoreboard(List<Player> initialPlayers) {
+        this.players = initialPlayers != null ? initialPlayers : Collections.emptyList();
+
+        setLayout(new BorderLayout(0, 8));
+        setPreferredSize(new Dimension(240, 320));
+        setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(160, 160, 160), 2),
+            BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+        setBackground(new Color(248, 248, 248));
 
         JLabel title = new JLabel("GO WEST SCOREBOARD");
-        JLabel words = new JLabel("chart the points here");
+        title.setFont(new Font("SansSerif", Font.BOLD, 15));
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel subtitle = new JLabel("City = 2 pts/tile | Road = 1 pt/tile");
+        subtitle.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        subtitle.setForeground(Color.DARK_GRAY);
+        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JPanel top = new JPanel();
+        top.setOpaque(false);
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         top.add(title);
-        top.add(words);
+        top.add(Box.createVerticalStrut(4));
+        top.add(subtitle);
 
         minButton = new JButton("Minimize");
+        minButton.setFocusPainted(false);
+
+        stuff = new JPanel(new BorderLayout());
+        stuff.setOpaque(false);
+
+        list = new JPanel();
+        list.setOpaque(false);
+        list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+        stuff.add(list, BorderLayout.NORTH);
 
         minButton.addActionListener(e -> {
             if (stuff.isVisible()) {
@@ -38,153 +64,52 @@ public class Scoreboard extends JPanel {
                 minButton.setText("Minimize");
             }
             revalidate();
+            repaint();
         });
 
-        stuff = new JPanel();
-        stuff.setLayout(new BoxLayout(stuff, BoxLayout.Y_AXIS));
-
-        stuff.add(new JLabel("Add player"));
-
-        nameBox = new JTextField(15);
-        JButton addButton = new JButton("Add");
-
-        JPanel addPanel = new JPanel();
-        addPanel.add(nameBox);
-        addPanel.add(addButton);
-
-        stuff.add(addPanel);
-        stuff.add(new JLabel("Players list:"));
-
-        list = new JPanel();
-        list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
-        stuff.add(list);
-
-        addButton.addActionListener(e -> addPlayer());
-
-        JPanel middle = new JPanel(new BorderLayout());
+        JPanel middle = new JPanel(new BorderLayout(0, 8));
+        middle.setOpaque(false);
         middle.add(minButton, BorderLayout.NORTH);
         middle.add(stuff, BorderLayout.CENTER);
 
         add(top, BorderLayout.NORTH);
         add(middle, BorderLayout.CENTER);
 
-        loadPlayers();
-        showPlayers();
+        refreshScores();
     }
 
-    // adds a player
-    public void addPlayer() {
-
-        String name = nameBox.getText();
-
-        if (name.trim().equals("")) {
-            JOptionPane.showMessageDialog(this, "type a name first!");
-            return;
-        }
-
-        names.add(name);
-        scores.add(0);
-
-        nameBox.setText("");
-
-        savePlayers();
-        showPlayers();
+    public void setPlayers(List<Player> players) {
+        this.players = players != null ? players : Collections.emptyList();
+        refreshScores();
     }
 
-    // shows all the players
-    public void showPlayers() {
-
+    public void refreshScores() {
         list.removeAll();
 
-        for (int i = 0; i < names.size(); i++) {
+        for (Player p : players) {
+            JPanel row = new JPanel(new BorderLayout());
+            row.setBackground(Color.WHITE);
+            row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(210, 210, 210), 1),
+                BorderFactory.createEmptyBorder(8, 10, 8, 10)
+            ));
 
-            final int number = i;
+            JLabel nameLabel = new JLabel(p.getName());
+            nameLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
+            nameLabel.setForeground(p.getBannerColor());
 
-            JLabel player = new JLabel(names.get(i) + " has " + scores.get(i) + " points ");
+            JLabel scoreLabel = new JLabel(p.getScore() + " pts");
+            scoreLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
+            scoreLabel.setForeground(Color.DARK_GRAY);
 
-            JButton plus = new JButton("+");
-            JButton minus = new JButton("-");
-
-            plus.addActionListener(e -> {
-                scores.set(number, scores.get(number) + 1);
-                savePlayers();
-                showPlayers();
-            });
-
-            minus.addActionListener(e -> {
-                scores.set(number, scores.get(number) - 1);
-                savePlayers();
-                showPlayers();
-            });
-
-            JPanel row = new JPanel();
-            row.add(player);
-            row.add(plus);
-            row.add(minus);
+            row.add(nameLabel, BorderLayout.WEST);
+            row.add(scoreLabel, BorderLayout.EAST);
 
             list.add(row);
+            list.add(Box.createVerticalStrut(6));
         }
 
         list.revalidate();
         list.repaint();
-    }
-
-    // saves the players to a file
-    public void savePlayers() {
-
-        try {
-            PrintWriter writer = new PrintWriter("players.txt");
-
-            for (int i = 0; i < names.size(); i++) {
-                writer.println(names.get(i) + "\t" + scores.get(i));
-            }
-
-            writer.close();
-
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Could not save players");
-        }
-    }
-
-    // loads the players from the file
-    public void loadPlayers() {
-
-        try {
-            BufferedReader reader = new BufferedReader(new FileReader("players.txt"));
-
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-
-                String[] parts = line.split("\t");
-
-                if (parts.length == 2) {
-                    names.add(parts[0]);
-                    scores.add(Integer.parseInt(parts[1]));
-                }
-            }
-
-            reader.close();
-
-        } catch (FileNotFoundException e) {
-            // no saved players yet
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Could not load players");
-        }
-    }
-
-    // runs scoreboard by itself for testing
-    public static void main(String[] args) {
-
-        JFrame window = new JFrame("Go West Scoreboard");
-
-        window.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-
-        Scoreboard board = new Scoreboard();
-
-        window.add(board);
-        window.pack();
-        window.setLocationRelativeTo(null);
-        window.setVisible(true);
     }
 }

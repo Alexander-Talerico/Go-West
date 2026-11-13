@@ -1,4 +1,5 @@
 package tilecraft;
+
 import scoreboard.Scoreboard;
 import grid.Grid;
 import javax.swing.*;
@@ -6,7 +7,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Path2D;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
 
 public class Tilecraft extends JFrame {
@@ -17,18 +18,30 @@ public class Tilecraft extends JFrame {
 
     private final GameState gameState;
     private final Grid boardGrid;
+    private final Scoreboard scoreboard;
     private final TileCanvas previewCanvas = new TileCanvas();
     private final JLabel headerLabel = new JLabel("", SwingConstants.CENTER);
     private final JPanel flagBoxPanel = new JPanel();
     private final FlagOverlay flagOverlay;
+
+    private final JButton btnRotateCCW = new JButton("Rotate CCW");
+    private final JButton btnRotateCW = new JButton("Rotate CW");
+    private final JButton btnEndTurn = new JButton("End Turn");
+
+    private final Set<String> claimedFeatureNodes = new HashSet<>();
 
     public Tilecraft() {
         this(DEFAULT_PLAYER_COUNT);
     }
 
     public Tilecraft(int playerCount) {
-        this.gameState = new GameState(playerCount);
         this.boardGrid = new Grid();
+        TileGenerator.setGrid(boardGrid);
+
+        this.gameState = new GameState(playerCount);
+        this.scoreboard = new Scoreboard(gameState.getPlayers());
+
+        TileGenerator.setCanPlaceCheck(() -> !gameState.isGameOver() && !gameState.isTilePlacedThisTurn());
 
         setTitle("Go West");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -51,16 +64,12 @@ public class Tilecraft extends JFrame {
         boardHolder.add(boardGrid);
 
         gridWrapper.add(boardHolder, BorderLayout.CENTER);
-        gridWrapper.add(new Scoreboard(), BorderLayout.EAST);
+        gridWrapper.add(scoreboard, BorderLayout.EAST);
         add(gridWrapper, BorderLayout.CENTER);
 
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 8));
         bottomPanel.setBackground(new Color(240, 240, 240));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 10, 10, 10));
-
-        JButton btnRotateCCW = new JButton("Rotate CCW");
-        JButton btnRotateCW = new JButton("Rotate CW");
-        JButton btnEndTurn = new JButton("Skip / End Turn");
 
         previewCanvas.setPreferredSize(new Dimension(220, 220));
 
@@ -81,7 +90,7 @@ public class Tilecraft extends JFrame {
 
         btnRotateCCW.addActionListener(e -> {
             Tile tile = gameState.getCurrentTile();
-            if (tile != null) {
+            if (tile != null && !gameState.isTilePlacedThisTurn()) {
                 tile.rotateCounterClockwise();
                 updateUIState();
                 TileGenerator.sendNetworkMessage("ROTATE_CCW");
@@ -90,7 +99,7 @@ public class Tilecraft extends JFrame {
 
         btnRotateCW.addActionListener(e -> {
             Tile tile = gameState.getCurrentTile();
-            if (tile != null) {
+            if (tile != null && !gameState.isTilePlacedThisTurn()) {
                 tile.rotateClockwise();
                 updateUIState();
                 TileGenerator.sendNetworkMessage("ROTATE_CW");
@@ -98,13 +107,16 @@ public class Tilecraft extends JFrame {
         });
 
         btnEndTurn.addActionListener(e -> {
-            gameState.endTurn();
-            updateUIState();
-            TileGenerator.sendNetworkMessage("END_TURN");
+            if (!gameState.isGameOver()) {
+                gameState.endTurn();
+                updateUIState();
+                TileGenerator.sendNetworkMessage("END_TURN");
+                checkAndAnnounceGameOver();
+            }
         });
 
         TileGenerator.setPlacementListener(() -> {
-            gameState.endTurn();
+            gameState.markTilePlaced();
             updateUIState();
         });
 
@@ -112,6 +124,23 @@ public class Tilecraft extends JFrame {
         pack();
         setLocationRelativeTo(null);
         setResizable(false);
+    }
+
+    private void checkAndAnnounceGameOver() {
+        if (gameState.isGameOver()) {
+            Player winner = null;
+            double bestScore = Double.MIN_VALUE;
+            for (Player p : gameState.getPlayers()) {
+                if (p.getScore() > bestScore) {
+                    bestScore = p.getScore();
+                    winner = p;
+                }
+            }
+            String msg = (winner != null)
+                ? String.format("Winner: %s with %.2f points!", winner.getName(), bestScore)
+                : "Game Over!";
+            JOptionPane.showMessageDialog(this, msg, "Game Over", JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     public void handleNetworkMessage(String msg) {
@@ -132,6 +161,7 @@ public class Tilecraft extends JFrame {
         } else if (msg.equals("END_TURN")) {
             gameState.endTurn();
             updateUIState();
+            checkAndAnnounceGameOver();
         } else if (msg.startsWith("GRID:")) {
             String[] parts = msg.split(":");
             if (parts.length == 5) {
@@ -141,26 +171,64 @@ public class Tilecraft extends JFrame {
                 boolean shift = Boolean.parseBoolean(parts[4]);
                 boardGrid.handleCellAction(row, col, button, shift, true);
             }
-        } else if (msg.startsWith("FLAG:")) {
+        } else if (msg.startsWith("CLAIM:")) {
+            // Format: CLAIM:flagId:x:y:playerIndex:points:row:col:subR:subC
             String[] parts = msg.split(":");
-            if (parts.length == 4) {
+            if (parts.length == 10) {
                 int id = Integer.parseInt(parts[1]);
                 int x = Integer.parseInt(parts[2]);
                 int y = Integer.parseInt(parts[3]);
-                flagOverlay.moveMarkerFromNetwork(id, x, y);
+                int playerIdx = Integer.parseInt(parts[4]);
+                double points = Double.parseDouble(parts[5]);
+                int r = Integer.parseInt(parts[6]);
+                int c = Integer.parseInt(parts[7]);
+                int sr = Integer.parseInt(parts[8]);
+                int sc = Integer.parseInt(parts[9]);
+
+                FeatureEvaluator.EvalResult res = FeatureEvaluator.evaluateFeature(
+                    boardGrid.getBoard(), r, c, sr, sc, claimedFeatureNodes
+                );
+                if (res.validAndComplete) {
+                    claimedFeatureNodes.addAll(res.featureNodes);
+                }
+
+                gameState.getPlayers().get(playerIdx).addPoints(points);
+                gameState.markClaimedThisTurn();
+                flagOverlay.lockMarkerFromNetwork(id, x, y);
+                scoreboard.refreshScores();
+                updateUIState();
             }
         }
     }
 
     private void updateUIState() {
-        Player current = gameState.getCurrentPlayer();
-        headerLabel.setText(String.format("Turn %d: %s's Turn",
-                gameState.getTurnCount(), current.getName()));
-        headerLabel.setForeground(current.getBannerColor());
+        if (gameState.isGameOver()) {
+            headerLabel.setText("Game Over! Final Scores on Scoreboard");
+            headerLabel.setForeground(Color.BLACK);
+            btnRotateCCW.setEnabled(false);
+            btnRotateCW.setEnabled(false);
+            btnEndTurn.setEnabled(false);
+        } else {
+            Player current = gameState.getCurrentPlayer();
+            String phaseText = gameState.isTilePlacedThisTurn()
+                ? (gameState.hasClaimedThisTurn()
+                    ? "Feature Claimed! Click 'End Turn'"
+                    : "Tile Placed! Drag a Flag to Claim a Completed Road or City, or Click 'End Turn'")
+                : "Place Your Tile on the Board (or Click 'End Turn' to Skip)";
+
+            headerLabel.setText(String.format("Turn %d / %d — %s (%s)",
+                    gameState.getTurnCount(), GameState.MAX_TURNS, current.getName(), phaseText));
+            headerLabel.setForeground(current.getBannerColor());
+
+            btnRotateCCW.setEnabled(!gameState.isTilePlacedThisTurn());
+            btnRotateCW.setEnabled(!gameState.isTilePlacedThisTurn());
+            btnEndTurn.setEnabled(true);
+        }
 
         previewCanvas.setTile(gameState.getCurrentTile());
         previewCanvas.repaint();
         boardGrid.repaint();
+        scoreboard.refreshScores();
         if (flagOverlay != null) {
             flagOverlay.repaint();
         }
@@ -173,7 +241,7 @@ public class Tilecraft extends JFrame {
         final int stackIndex;
         int x;
         int y;
-        boolean draggedFromPile = false;
+        boolean lockedOnBoard = false;
 
         FlagMarker(int id, Color color, int pileIndex, int stackIndex) {
             this.id = id;
@@ -203,19 +271,19 @@ public class Tilecraft extends JFrame {
             MouseAdapter adapter = new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
+                    if (gameState.isGameOver() || !gameState.isTilePlacedThisTurn() || gameState.hasClaimedThisTurn()) {
+                        return;
+                    }
+
                     updatePilePositions();
                     FlagMarker hit = findTopMarkerAt(e.getX(), e.getY());
-                    if (hit != null) {
+                    if (hit != null && !hit.lockedOnBoard && hit.pileIndex == gameState.getCurrentPlayerIndex()) {
                         activeMarker = hit;
-                        activeMarker.draggedFromPile = true;
                         offsetX = e.getX() - activeMarker.x;
                         offsetY = e.getY() - activeMarker.y;
                         markers.remove(activeMarker);
                         markers.add(activeMarker);
                         repaint();
-                        TileGenerator.sendNetworkMessage(
-                            "FLAG:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y
-                        );
                     }
                 }
 
@@ -225,18 +293,56 @@ public class Tilecraft extends JFrame {
                         activeMarker.x = e.getX() - offsetX;
                         activeMarker.y = e.getY() - offsetY;
                         repaint();
-                        TileGenerator.sendNetworkMessage(
-                            "FLAG:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y
-                        );
                     }
                 }
 
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     if (activeMarker != null) {
-                        TileGenerator.sendNetworkMessage(
-                            "FLAG:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y
-                        );
+                        Point gridPt = SwingUtilities.convertPoint(FlagOverlay.this, activeMarker.x, activeMarker.y, boardGrid);
+                        int[] cellInfo = boardGrid.getGridAndSubCellAt(gridPt);
+
+                        boolean claimedSuccess = false;
+                        if (cellInfo != null) {
+                            int r = cellInfo[0];
+                            int c = cellInfo[1];
+                            int sr = cellInfo[2];
+                            int sc = cellInfo[3];
+
+                            FeatureEvaluator.EvalResult res = FeatureEvaluator.evaluateFeature(
+                                boardGrid.getBoard(), r, c, sr, sc, claimedFeatureNodes
+                            );
+
+                            if (res.validAndComplete) {
+                                claimedSuccess = true;
+                                activeMarker.lockedOnBoard = true;
+                                claimedFeatureNodes.addAll(res.featureNodes);
+
+                                Player current = gameState.getCurrentPlayer();
+                                current.addPoints(res.points);
+                                gameState.markClaimedThisTurn();
+
+                                scoreboard.refreshScores();
+                                updateUIState();
+
+                                TileGenerator.sendNetworkMessage(
+                                    "CLAIM:" + activeMarker.id + ":" + activeMarker.x + ":" + activeMarker.y + ":"
+                                    + gameState.getCurrentPlayerIndex() + ":" + res.points + ":"
+                                    + r + ":" + c + ":" + sr + ":" + sc
+                                );
+
+                                System.out.println(current.getName() + " claimed a completed "
+                                    + res.featureType + " for " + res.points + " points!");
+                            } else {
+                                System.out.println("Cannot claim here! Feature is either incomplete or already claimed.");
+                            }
+                        }
+
+                        if (!claimedSuccess) {
+                            activeMarker.lockedOnBoard = false;
+                            updatePilePositions();
+                        }
+
                         activeMarker = null;
                         repaint();
                     }
@@ -247,7 +353,7 @@ public class Tilecraft extends JFrame {
             addMouseMotionListener(adapter);
         }
 
-        public void moveMarkerFromNetwork(int id, int x, int y) {
+        public void lockMarkerFromNetwork(int id, int x, int y) {
             updatePilePositions();
             FlagMarker target = null;
             for (FlagMarker m : markers) {
@@ -257,7 +363,7 @@ public class Tilecraft extends JFrame {
                 }
             }
             if (target != null) {
-                target.draggedFromPile = true;
+                target.lockedOnBoard = true;
                 target.x = x;
                 target.y = y;
                 markers.remove(target);
@@ -274,7 +380,7 @@ public class Tilecraft extends JFrame {
             int baseCenterY = boxOrigin.y + flagBoxPanel.getHeight() / 2 + 12;
 
             for (FlagMarker m : markers) {
-                if (!m.draggedFromPile) {
+                if (!m.lockedOnBoard && m != activeMarker) {
                     m.x = boxOrigin.x + slotWidth * m.pileIndex + slotWidth / 2;
                     m.y = baseCenterY - (m.stackIndex * 4);
                 }
@@ -296,8 +402,12 @@ public class Tilecraft extends JFrame {
         @Override
         public boolean contains(int x, int y) {
             if (activeMarker != null) return true;
+            if (gameState.isGameOver() || !gameState.isTilePlacedThisTurn() || gameState.hasClaimedThisTurn()) {
+                return false;
+            }
             updatePilePositions();
-            return findTopMarkerAt(x, y) != null;
+            FlagMarker hit = findTopMarkerAt(x, y);
+            return hit != null && !hit.lockedOnBoard && hit.pileIndex == gameState.getCurrentPlayerIndex();
         }
 
         @Override

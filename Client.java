@@ -8,115 +8,69 @@ import tilecraft.TileGenerator;
 
 public class Client {
 
-private static final int PORT = 5000;
-private static final int DISCOVERY_PORT = 5001;
-private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
-private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
+    private static final int PORT = 5000;
+    private static final int DISCOVERY_PORT = 5001;
+    private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
+    private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
 
     private static Socket connectToServer() throws IOException {
-    try {
-        Socket socket = new Socket();
-        socket.connect(
-            new InetSocketAddress("127.0.0.1", PORT),
-            1000
-        );
-        System.out.println("Connected to local server.");
-        return socket;
+        try {
+            Socket socket = new Socket();
+            socket.connect(new InetSocketAddress("127.0.0.1", PORT), 1000);
+            System.out.println("Connected to local server.");
+            return socket;
+        } catch (IOException ignored) {}
 
-    } catch (IOException ignored) {
-    }
+        System.out.println("Searching for Tilecraft servers...");
 
-    System.out.println("Searching for Tilecraft servers...");
+        try (DatagramSocket discoverySocket = new DatagramSocket()) {
+            discoverySocket.setBroadcast(true);
+            discoverySocket.setSoTimeout(4000);
 
-    try (DatagramSocket discoverySocket = new DatagramSocket()) {
-
-        discoverySocket.setBroadcast(true);
-        discoverySocket.setSoTimeout(4000);
-
-        byte[] requestData = DISCOVERY_REQUEST.getBytes();
-        DatagramPacket request = new DatagramPacket(
-            requestData,
-            requestData.length,
-            InetAddress.getByName("255.255.255.255"),
-            DISCOVERY_PORT
-        );
-
-        discoverySocket.send(request);
-
-        byte[] responseBuffer = new byte[1024];
-
-        while (true) {
-
-            DatagramPacket response = new DatagramPacket(
-                responseBuffer,
-                responseBuffer.length
+            byte[] requestData = DISCOVERY_REQUEST.getBytes();
+            DatagramPacket request = new DatagramPacket(
+                requestData, requestData.length,
+                InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT
             );
 
-            discoverySocket.receive(response);
+            discoverySocket.send(request);
+            byte[] responseBuffer = new byte[1024];
 
-            String message = new String(
-                response.getData(),
-                0,
-                response.getLength()
-            ).trim();
+            while (true) {
+                DatagramPacket response = new DatagramPacket(responseBuffer, responseBuffer.length);
+                discoverySocket.receive(response);
 
-            if (message.startsWith(DISCOVERY_RESPONSE)) {
+                String message = new String(response.getData(), 0, response.getLength()).trim();
 
-                int serverPort = Integer.parseInt(
-                    message.substring(DISCOVERY_RESPONSE.length())
-                );
+                if (message.startsWith(DISCOVERY_RESPONSE)) {
+                    int serverPort = Integer.parseInt(message.substring(DISCOVERY_RESPONSE.length()));
+                    InetAddress serverAddress = response.getAddress();
 
-                InetAddress serverAddress = response.getAddress();
-
-                System.out.println(
-                    "Found Tilecraft server at: "
-                    + serverAddress.getHostAddress()
-                );
-
-                Socket socket = new Socket();
-
-                socket.connect(
-                    new InetSocketAddress(serverAddress, serverPort),
-                    3000
-                );
-
-                System.out.println("Connected to Tilecraft server!");
-
-                return socket;
+                    System.out.println("Found Tilecraft server at: " + serverAddress.getHostAddress());
+                    Socket socket = new Socket();
+                    socket.connect(new InetSocketAddress(serverAddress, serverPort), 3000);
+                    System.out.println("Connected to Tilecraft server!");
+                    return socket;
+                }
             }
+        } catch (SocketTimeoutException e) {
+            throw new IOException("No Tilecraft server found on your local network.\nMake sure someone has started the server.", e);
         }
-
-    } catch (SocketTimeoutException e) {
-        throw new IOException(
-            "No Tilecraft server found on your local network.\n"
-            + "Make sure someone has started the server.",
-            e
-        );
     }
-}
 
     public static void main(String[] args) {
-
         try (
             Socket socket = connectToServer();
-            BufferedReader in = new BufferedReader(
-                new InputStreamReader(socket.getInputStream()));
-            PrintWriter out = new PrintWriter(
-                socket.getOutputStream(), true)
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true)
         ) {
             in.readLine();
 
             String[] options = {"Create Room", "Join Room"};
-
             int choice = JOptionPane.showOptionDialog(
-                null,
-                "Create or join a room?",
-                "Tilecraft Multiplayer",
-                JOptionPane.DEFAULT_OPTION,
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                options,
-                options[0]
+                null, "Create or join a room?", "Tilecraft Multiplayer",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]
             );
 
             String roomCode = "";
@@ -126,18 +80,14 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
             if (choice == 0) {
                 isHost = true;
                 out.println("CREATE");
-
                 String response = in.readLine();
                 if (response == null || !response.startsWith("ROOM:")) {
                     JOptionPane.showMessageDialog(null, "Could not create room.");
                     return;
                 }
-
                 roomCode = response.substring(5).trim().toUpperCase();
-
             } else if (choice == 1) {
                 out.println("JOIN");
-
                 String response = in.readLine();
                 if (!"CODE".equals(response)) {
                     JOptionPane.showMessageDialog(null, "Could not join a room.");
@@ -145,22 +95,16 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
                 }
 
                 String code = JOptionPane.showInputDialog(null, "Enter room code:");
-                if (code == null || code.trim().isEmpty()) {
-                    return;
-                }
+                if (code == null || code.trim().isEmpty()) return;
 
                 roomCode = code.trim().toUpperCase();
                 out.println(roomCode);
 
                 response = in.readLine();
                 if (response == null || !response.startsWith("JOINED:")) {
-                    JOptionPane.showMessageDialog(
-                        null,
-                        response == null ? "Connection lost." : response.replace("ERROR:", "")
-                    );
+                    JOptionPane.showMessageDialog(null, response == null ? "Connection lost." : response.replace("ERROR:", ""));
                     return;
                 }
-
                 initialCount = Integer.parseInt(response.substring(7).trim());
             } else {
                 return;
@@ -248,17 +192,6 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
                 gameWindow[0].setVisible(true);
             });
 
-            try {
-                File htmlFile = new File(
-                    System.getProperty("user.dir"), "index.html"
-                );
-
-                if (htmlFile.exists() && Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().browse(htmlFile.toURI());
-                }
-            } catch (Exception ignored) {
-            }
-
             String message;
             while ((message = in.readLine()) != null) {
                 final String msg = message;
@@ -272,11 +205,8 @@ private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
         } catch (Exception e) {
             JOptionPane.showMessageDialog(
                 null,
-                "Could not connect to the server.\n"
-                + "Make sure Server is running first (`java -cp out Server`).\n\n"
-                + e.getMessage(),
-                "Connection Error",
-                JOptionPane.ERROR_MESSAGE
+                "Could not connect to the server.\nMake sure Server is running first.\n\n" + e.getMessage(),
+                "Connection Error", JOptionPane.ERROR_MESSAGE
             );
         }
     }

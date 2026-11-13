@@ -3,6 +3,7 @@ package grid;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -18,15 +19,16 @@ import javax.swing.SwingUtilities;
 import tilecraft.Tile;
 import tilecraft.TileGenerator;
 import tilecraft.TileDeck;
+import tilecraft.BoardValidator;
 
 public class Grid extends JPanel {
 
-    private static final int ROWS = 8;
-    private static final int COLUMNS = 25;
-    private static final int TILE_SIZE = 30;
-    private static final int WEST_WIDTH = 60;
-    private static final int EAST_WIDTH = 60;
-    private static final int[] EAST_ROAD_ROWS = {1, 3, 5, 7};
+    public static final int ROWS = 11;
+    public static final int COLUMNS = 25;
+    public static final int TILE_SIZE = 30;
+    public static final int WEST_WIDTH = 60;
+    public static final int EAST_WIDTH = 60;
+    private static final int[] EAST_ROAD_ROWS = {1, 3, 5, 7, 9};
     private final Tile[] eastRoadTiles = new Tile[EAST_ROAD_ROWS.length];
 
     private Tile[][] board = new Tile[ROWS][COLUMNS];
@@ -48,9 +50,7 @@ public class Grid extends JPanel {
             eastRoadTiles[i] = road;
         }
 
-        placeSound = loadSound(
-            "/sounds/place-tile-sound.wav"
-        );
+        placeSound = loadSound("/sounds/place-tile-sound.wav");
 
         addMouseListener(new MouseAdapter() {
             @Override
@@ -100,16 +100,35 @@ public class Grid extends JPanel {
                     newRow = event.getY() / TILE_SIZE;
                 }
 
-                if (newRow != hoveredRow ||
-                    newColumn != hoveredColumn) {
-
+                if (newRow != hoveredRow || newColumn != hoveredColumn) {
                     hoveredRow = newRow;
                     hoveredColumn = newColumn;
-
                     repaint();
                 }
             }
         });
+    }
+
+    public Tile[][] getBoard() {
+        return board;
+    }
+
+    public int[] getGridAndSubCellAt(Point pt) {
+        int x = pt.x;
+        int y = pt.y;
+        if (x < WEST_WIDTH || x >= WEST_WIDTH + COLUMNS * TILE_SIZE || y < 0 || y >= ROWS * TILE_SIZE) {
+            return null;
+        }
+        int col = (x - WEST_WIDTH) / TILE_SIZE;
+        int row = y / TILE_SIZE;
+
+        int localX = (x - WEST_WIDTH) % TILE_SIZE;
+        int localY = y % TILE_SIZE;
+
+        int subCol = Math.min(2, (localX * 3) / TILE_SIZE);
+        int subRow = Math.min(2, (localY * 3) / TILE_SIZE);
+
+        return new int[]{row, col, subRow, subCol};
     }
 
     public void handleCellAction(
@@ -119,12 +138,10 @@ public class Grid extends JPanel {
             boolean shiftDown,
             boolean fromNetwork) {
 
-        if (row >= 0 && row < ROWS &&
-            column >= 0 && column < COLUMNS) {
-
+        if (row >= 0 && row < ROWS && column >= 0 && column < COLUMNS) {
             boolean changed = false;
 
-            // Shift and right click deletes a tile
+            // Shift + Right-click deletes a tile
             if (button == MouseEvent.BUTTON3 && shiftDown) {
                 if (board[row][column] != null) {
                     board[row][column] = null;
@@ -132,8 +149,7 @@ public class Grid extends JPanel {
                     changed = true;
                 }
             }
-
-            // Right click rotates a tile
+            // Right-click rotates a tile
             else if (button == MouseEvent.BUTTON3) {
                 if (board[row][column] != null) {
                     board[row][column].rotateClockwise();
@@ -141,15 +157,19 @@ public class Grid extends JPanel {
                     changed = true;
                 }
             }
-
-            // Left click places a tile
+            // Left-click places the current turn's tile (only once per turn)
             else if (button == MouseEvent.BUTTON1) {
-                if (board[row][column] == null) {
-                    board[row][column] = TileGenerator.generateTile();
-                    playSound(placeSound);
-                    System.out.println("Placed " + board[row][column]);
-                    TileGenerator.onTilePlaced();
-                    changed = true;
+                if (board[row][column] == null && TileGenerator.canPlaceTileNow()) {
+                    Tile activeTile = TileGenerator.getCurrentTile();
+                    if (activeTile != null && BoardValidator.canPlace(board, activeTile, row, column)) {
+                        board[row][column] = TileGenerator.generateTile();
+                        playSound(placeSound);
+                        System.out.println("Placed " + board[row][column]);
+                        TileGenerator.onTilePlaced();
+                        changed = true;
+                    } else {
+                        System.out.println("Invalid placement! Edges or corners do not match.");
+                    }
                 }
             }
 
@@ -169,164 +189,72 @@ public class Grid extends JPanel {
         drawSideAreas(graphics);
 
         for (int row = 0; row < ROWS; row++) {
-            for (int column = 0;
-                 column < COLUMNS;
-                 column++) {
-
+            for (int column = 0; column < COLUMNS; column++) {
                 int x = WEST_WIDTH + column * TILE_SIZE;
                 int y = row * TILE_SIZE;
 
                 if (board[row][column] == null) {
                     if ((row + column) % 2 == 0) {
-                        graphics.setColor(
-                            new Color(194, 178, 128)
-                        );
+                        graphics.setColor(new Color(194, 178, 128));
                     } else {
-                        graphics.setColor(
-                            new Color(170, 155, 110)
-                        );
+                        graphics.setColor(new Color(170, 155, 110));
                     }
-
-                    graphics.fillRect(
-                        x,
-                        y,
-                        TILE_SIZE,
-                        TILE_SIZE
-                    );
+                    graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                 } else {
-                    drawTile(
-                        graphics,
-                        board[row][column],
-                        x,
-                        y
-                    );
+                    drawTile(graphics, board[row][column], x, y);
                 }
 
                 graphics.setColor(Color.BLACK);
+                graphics.drawRect(x, y, TILE_SIZE, TILE_SIZE);
 
-                graphics.drawRect(
-                    x,
-                    y,
-                    TILE_SIZE,
-                    TILE_SIZE
-                );
-
-                if (row == hoveredRow &&
-                    column == hoveredColumn &&
-                    board[row][column] != null) {
-
+                if (row == hoveredRow && column == hoveredColumn && board[row][column] != null) {
                     graphics.setColor(Color.YELLOW);
-
-                    graphics.drawRect(
-                        x + 1,
-                        y + 1,
-                        TILE_SIZE - 2,
-                        TILE_SIZE - 2
-                    );
-
-                    graphics.drawRect(
-                        x + 2,
-                        y + 2,
-                        TILE_SIZE - 4,
-                        TILE_SIZE - 4
-                    );
-
-                    graphics.drawRect(
-                        x + 3,
-                        y + 3,
-                        TILE_SIZE - 6,
-                        TILE_SIZE - 6
-                    );
+                    graphics.drawRect(x + 1, y + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                    graphics.drawRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                    graphics.drawRect(x + 3, y + 3, TILE_SIZE - 6, TILE_SIZE - 6);
                 }
             }
         }
     }
 
     private void drawSideAreas(Graphics graphics) {
-    int height = ROWS * TILE_SIZE;
-    int eastX = WEST_WIDTH + COLUMNS * TILE_SIZE;
+        int height = ROWS * TILE_SIZE;
+        int eastX = WEST_WIDTH + COLUMNS * TILE_SIZE;
 
-    // West Section
-    graphics.setColor(new Color(95, 110, 105));
-    graphics.fillRect(0, 0, WEST_WIDTH, height);
+        graphics.setColor(new Color(95, 110, 105));
+        graphics.fillRect(0, 0, WEST_WIDTH, height);
+        graphics.setColor(Color.WHITE);
+        graphics.drawString("WEST", 12, 20);
 
-    graphics.setColor(Color.WHITE);
-    graphics.drawString("WEST", 12, 20);
+        graphics.setColor(new Color(205, 185, 145));
+        graphics.fillRect(eastX, 0, EAST_WIDTH, height);
+        graphics.setColor(Color.BLACK);
+        graphics.drawString("EAST", eastX + 14, 20);
 
-    // East Section
-    graphics.setColor(new Color(205, 185, 145));
-    graphics.fillRect(eastX, 0, EAST_WIDTH, height);
-
-    graphics.setColor(Color.BLACK);
-    graphics.drawString("EAST", eastX + 14, 20);
-
-    for (int i = 0; i < EAST_ROAD_ROWS.length; i++) {
-        int y = EAST_ROAD_ROWS[i] * TILE_SIZE;
-
-        tilecraft.Tilecraft.drawTile(
-            graphics,
-            eastRoadTiles[i],
-            eastX,
-            y,
-            TILE_SIZE,
-            false
-        );
-    }
-
-    graphics.setColor(Color.BLACK);
-    graphics.drawLine(WEST_WIDTH - 1, 0, WEST_WIDTH - 1, height);
-    graphics.drawLine(eastX, 0, eastX, height);
-}
-
-    public Tile getEastStarterTile(int row) {
         for (int i = 0; i < EAST_ROAD_ROWS.length; i++) {
-            if (EAST_ROAD_ROWS[i] == row) {
-                return eastRoadTiles[i];
-            }
+            int y = EAST_ROAD_ROWS[i] * TILE_SIZE;
+            tilecraft.Tilecraft.drawTile(graphics, eastRoadTiles[i], eastX, y, TILE_SIZE, false);
         }
 
-        return null;
+        graphics.setColor(Color.BLACK);
+        graphics.drawLine(WEST_WIDTH - 1, 0, WEST_WIDTH - 1, height);
+        graphics.drawLine(eastX, 0, eastX, height);
     }
 
-    private void drawTile(
-            Graphics graphics,
-            Tile tile,
-            int x,
-            int y) {
+    private void drawTile(Graphics graphics, Tile tile, int x, int y) {
         tilecraft.Tilecraft.drawTile(graphics, tile, x, y, TILE_SIZE, false);
     }
 
     private Clip loadSound(String fileName) {
         try {
-            URL soundLocation =
-                getClass().getResource(fileName);
-
-            if (soundLocation == null) {
-                System.out.println(
-                    "Sound file not found: "
-                    + fileName
-                );
-
-                return null;
-            }
-
-            AudioInputStream audio =
-                AudioSystem.getAudioInputStream(
-                    soundLocation
-                );
-
+            URL soundLocation = getClass().getResource(fileName);
+            if (soundLocation == null) return null;
+            AudioInputStream audio = AudioSystem.getAudioInputStream(soundLocation);
             Clip clip = AudioSystem.getClip();
             clip.open(audio);
             audio.close();
-
             return clip;
-        } catch (Exception error) {
-            System.out.println(
-                "Could not load sound: "
-                + fileName
-            );
-
-            error.printStackTrace();
+        } catch (Exception e) {
             return null;
         }
     }
@@ -338,22 +266,5 @@ public class Grid extends JPanel {
             sound.setFramePosition(0);
             sound.start();
         }
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            JFrame window =
-                new JFrame("Go West");
-
-            window.setDefaultCloseOperation(
-                JFrame.EXIT_ON_CLOSE
-            );
-
-            window.add(new Grid());
-            window.pack();
-            window.setLocationRelativeTo(null);
-            window.setResizable(false);
-            window.setVisible(true);
-        });
     }
 }

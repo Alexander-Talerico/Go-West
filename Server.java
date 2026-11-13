@@ -1,67 +1,74 @@
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import javax.swing.*;
+import java.awt.*;
 
 public class Server {
 
-   private static final int PORT = 5000;
-private static final int DISCOVERY_PORT = 5001;
-private static final int MAX_PLAYERS = 4;
-private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
-private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
+    private static final int PORT = 5000;
+    private static final int DISCOVERY_PORT = 5001;
+    private static final int MAX_PLAYERS = 4;
+    private static final String DISCOVERY_REQUEST = "TILECRAFT_DISCOVER";
+    private static final String DISCOVERY_RESPONSE = "TILECRAFT_SERVER:";
     private static final Map<String, Room> rooms = new HashMap<>();
+    
+    private static ServerSocket serverSocket;
+    private static volatile boolean running = true;
 
-private static void startDiscoveryListener() {
-    Thread discoveryThread = new Thread(() -> {
-        try (DatagramSocket socket = new DatagramSocket(DISCOVERY_PORT)) {
+    private static void startDiscoveryListener() {
+        Thread discoveryThread = new Thread(() -> {
+            try (DatagramSocket socket = new DatagramSocket(DISCOVERY_PORT)) {
+                socket.setBroadcast(true);
+                byte[] buffer = new byte[1024];
 
-            socket.setBroadcast(true);
+                System.out.println("LAN discovery running on UDP port " + DISCOVERY_PORT);
 
-            byte[] buffer = new byte[1024];
-
-            System.out.println("LAN discovery running on UDP port " + DISCOVERY_PORT);
-
-            while (true) {
-                DatagramPacket request = new DatagramPacket(
-                    buffer, buffer.length
-                );
-
-                socket.receive(request);
-
-                String message = new String(
-                    request.getData(),
-                    0,
-                    request.getLength()
-                );
-
-                if (DISCOVERY_REQUEST.equals(message.trim())) {
-
-                    String response = DISCOVERY_RESPONSE + PORT;
-
-                    byte[] responseData = response.getBytes();
-
-                    DatagramPacket reply = new DatagramPacket(
-                        responseData,
-                        responseData.length,
-                        request.getAddress(),
-                        request.getPort()
+                while (running) {
+                    DatagramPacket request = new DatagramPacket(
+                        buffer, buffer.length
                     );
 
-                    socket.send(reply);
+                    try {
+                        socket.receive(request);
+                    } catch (SocketTimeoutException e) {
+                        continue;
+                    }
+
+                    String message = new String(
+                        request.getData(),
+                        0,
+                        request.getLength()
+                    );
+
+                    if (DISCOVERY_REQUEST.equals(message.trim())) {
+                        String response = DISCOVERY_RESPONSE + PORT;
+                        byte[] responseData = response.getBytes();
+
+                        DatagramPacket reply = new DatagramPacket(
+                            responseData,
+                            responseData.length,
+                            request.getAddress(),
+                            request.getPort()
+                        );
+
+                        socket.send(reply);
+                    }
+                }
+
+            } catch (IOException e) {
+                if (running) {
+                    System.out.println("LAN discovery stopped: " + e.getMessage());
                 }
             }
+        });
 
-        } catch (IOException e) {
-            System.out.println("LAN discovery stopped: " + e.getMessage());
-        }
-    });
-
-    discoveryThread.setDaemon(true);
-    discoveryThread.start();
-}
+        discoveryThread.setDaemon(true);
+        discoveryThread.start();
+    }
 
     private static class Room {
-        final List<PrintWriter> clients = new ArrayList<>();
+        final java.util.List<PrintWriter> clients = new ArrayList<>();
         boolean started = false;
 
         synchronized int addClient(PrintWriter out) {
@@ -85,18 +92,60 @@ private static void startDiscoveryListener() {
     }
 
     public static void main(String[] args) {
-       try (ServerSocket server = new ServerSocket(PORT)) {
+        SwingUtilities.invokeLater(() -> {
+            JFrame frame = new JFrame("Tilecraft Server");
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            frame.setSize(320, 160);
+            frame.setLayout(new BorderLayout(10, 10));
 
-    startDiscoveryListener();
+            JLabel statusLabel = new JLabel("Server running on port " + PORT, SwingConstants.CENTER);
+            statusLabel.setFont(new Font("SansSerif", Font.BOLD, 13));
+            frame.add(statusLabel, BorderLayout.CENTER);
 
-    System.out.println("Server running on port " + PORT);
-    System.out.println("Waiting for players...");
+            JButton stopButton = new JButton("Stop Server");
+            stopButton.setFont(new Font("SansSerif", Font.BOLD, 14));
+            stopButton.setBackground(new Color(190, 40, 40));
+            stopButton.setForeground(Color.WHITE);
+            stopButton.setFocusPainted(false);
 
-            while (true) {
-                Socket socket = server.accept();
-                System.out.println("Player connected!");
+            stopButton.addActionListener(e -> {
+                running = false;
+                try {
+                    if (serverSocket != null && !serverSocket.isClosed()) {
+                        serverSocket.close();
+                    }
+                } catch (IOException ignored) {}
+                System.out.println("Server shutting down...");
+                System.exit(0);
+            });
 
-                new Thread(() -> handleClient(socket)).start();
+            JPanel buttonPanel = new JPanel();
+            buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 20, 15, 20));
+            buttonPanel.setLayout(new BorderLayout());
+            buttonPanel.add(stopButton, BorderLayout.CENTER);
+            frame.add(buttonPanel, BorderLayout.SOUTH);
+
+            frame.setLocationRelativeTo(null);
+            frame.setVisible(true);
+        });
+
+        // Start Core Server Socket & Discovery
+        try {
+            serverSocket = new ServerSocket(PORT);
+            startDiscoveryListener();
+
+            System.out.println("Server running on port " + PORT);
+            System.out.println("Waiting for players...");
+
+            while (running) {
+                try {
+                    Socket socket = serverSocket.accept();
+                    System.out.println("Player connected!");
+
+                    new Thread(() -> handleClient(socket)).start();
+                } catch (IOException e) {
+                    if (!running) break;
+                }
             }
 
         } catch (IOException e) {

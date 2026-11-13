@@ -7,10 +7,16 @@ import java.util.List;
 
 public class GameState {
 
+    public static final int MAX_TURNS = 100;
+
     private final List<Player> players = new ArrayList<>();
     private int currentPlayerIndex = 0;
     private int turnCount = 1;
     private Tile currentTile;
+
+    private boolean tilePlacedThisTurn = false;
+    private boolean claimedThisTurn = false;
+    private boolean gameOver = false;
 
     public GameState(int numberOfPlayers) {
         if (numberOfPlayers < 1) {
@@ -22,7 +28,6 @@ public class GameState {
             new Color(190, 40, 40),   // Player 2 (Red)
             new Color(30, 140, 40),   // Player 3 (Green)
             new Color(180, 120, 20),  // Player 4 (Gold)
-            new Color(120, 40, 160)   // Player 5 (Purple)
         };
 
         for (int i = 0; i < numberOfPlayers; i++) {
@@ -34,17 +39,56 @@ public class GameState {
     }
 
     public void drawNewTile() {
-        this.currentTile = TileGenerator.drawForTurn();
+        if (!gameOver) {
+            this.currentTile = TileGenerator.drawForTurn();
+        } else {
+            this.currentTile = null;
+        }
+    }
+
+    public void markTilePlaced() {
+        this.tilePlacedThisTurn = true;
+        this.currentTile = null;
+    }
+
+    public boolean isTilePlacedThisTurn() {
+        return tilePlacedThisTurn;
+    }
+
+    public boolean hasClaimedThisTurn() {
+        return claimedThisTurn;
+    }
+
+    public void markClaimedThisTurn() {
+        this.claimedThisTurn = true;
+    }
+
+    public boolean isGameOver() {
+        return gameOver;
     }
 
     public void endTurn() {
+        if (gameOver) return;
+
+        if (turnCount >= MAX_TURNS) {
+            gameOver = true;
+            currentTile = null;
+            return;
+        }
+
         currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
         turnCount++;
+        tilePlacedThisTurn = false;
+        claimedThisTurn = false;
         drawNewTile();
     }
 
     public Player getCurrentPlayer() {
         return players.get(currentPlayerIndex);
+    }
+
+    public int getCurrentPlayerIndex() {
+        return currentPlayerIndex;
     }
 
     public Tile getCurrentTile() {
